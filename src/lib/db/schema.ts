@@ -13,7 +13,7 @@ export const visits = pgTable("visits", {
   longitude: doublePrecision("longitude").notNull(),
   osmPlaceId: text("osm_place_id"),
   boundary: jsonb("boundary").$type<Geometry | null>(),
-  visitedAt: timestamp("visited_at", { withTimezone: true }).notNull().defaultNow(),
+  visitedAt: timestamp("visited_at", { withTimezone: true }),
   notes: text("notes"),
   rating: integer("rating"),
   source: text("source").notNull().default("telegram"),

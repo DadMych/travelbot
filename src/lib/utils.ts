@@ -5,12 +5,18 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatDate(date: Date | string, locale = "uk-UA") {
+export function formatDate(date: Date | string | null | undefined, locale = "uk-UA") {
+  if (!date) return "Дата невідома";
   return new Intl.DateTimeFormat(locale, {
     day: "numeric",
     month: "long",
     year: "numeric",
   }).format(new Date(date));
+}
+
+export function formatVisitDate(date: Date | string | null | undefined) {
+  if (!date) return "Дата невідома";
+  return formatDate(date);
 }
 
 export function pluralize(count: number, one: string, few: string, many: string) {

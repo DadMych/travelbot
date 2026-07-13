@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { fetchPlaceBoundary, searchPlaces, type GeocodeResult } from "@/lib/geocoding";
 import { sleep } from "@/lib/geojson";
@@ -10,7 +10,10 @@ export async function getAllVisits(): Promise<Visit[]> {
   return db
     .select()
     .from(schema.visits)
-    .orderBy(desc(schema.visits.visitedAt));
+    .orderBy(
+      sql`${schema.visits.visitedAt} desc nulls last`,
+      desc(schema.visits.createdAt)
+    );
 }
 
 export async function getVisitById(id: string): Promise<Visit | undefined> {
@@ -85,7 +88,12 @@ export async function backfillVisitBoundaries(limit = 3): Promise<number> {
 
 export async function createVisitFromGeocode(
   place: GeocodeResult,
-  options?: { notes?: string; rating?: number; visitedAt?: Date; source?: string }
+  options?: {
+    notes?: string;
+    rating?: number;
+    visitedAt?: Date | null;
+    source?: string;
+  }
 ): Promise<{ visit: Visit; isNew: boolean }> {
   const db = getDb();
 
@@ -123,7 +131,8 @@ export async function createVisitFromGeocode(
     boundary,
     notes: options?.notes,
     rating: options?.rating,
-    visitedAt: options?.visitedAt ?? new Date(),
+    visitedAt:
+      options?.visitedAt !== undefined ? options.visitedAt : new Date(),
     source: options?.source ?? "telegram",
   };
 

@@ -5,7 +5,7 @@ import { deleteVisit, updateVisit } from "@/lib/visits";
 const updateSchema = z.object({
   notes: z.string().max(2000).optional(),
   rating: z.number().int().min(1).max(5).optional(),
-  visitedAt: z.string().datetime().optional(),
+  visitedAt: z.string().datetime().nullable().optional(),
 });
 
 export async function PATCH(
