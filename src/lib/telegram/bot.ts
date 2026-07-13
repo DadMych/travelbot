@@ -1,6 +1,6 @@
 import { Bot, Context, InlineKeyboard, webhookCallback } from "grammy";
-import { searchPlaces, type GeocodeResult } from "@/lib/geocoding";
-import { createVisitFromGeocode, deleteVisit } from "@/lib/visits";
+import { searchPlacesRobust, type GeocodeResult } from "@/lib/geocoding";
+import { addCityFromGeocodeVerified, deleteVisit } from "@/lib/visits";
 import { isOwnerTelegramUser } from "@/lib/auth";
 import type { Achievement } from "@/lib/achievements";
 
@@ -35,44 +35,44 @@ function formatPlaceLine(place: GeocodeResult, index?: number): string {
   return `${prefix}<b>${place.city}</b>, ${place.country}${region}`;
 }
 
-async function getAchievementUnlockText(
-  before: Achievement[],
-  isNew: boolean
-): Promise<string> {
-  if (!isNew) return "";
-
+async function getNewlyUnlocked(
+  before: Achievement[]
+): Promise<Achievement[]> {
   const { getAllVisits } = await import("@/lib/visits");
-  const {
-    computeAchievements,
-    getNewlyUnlockedAchievements,
-    formatAchievementUnlockMessage,
-  } = await import("@/lib/achievements");
+  const { computeAchievements, getNewlyUnlockedAchievements } = await import(
+    "@/lib/achievements"
+  );
 
   const visits = await getAllVisits();
   const achievementsAfter = computeAchievements(visits);
-  const newlyUnlocked = getNewlyUnlockedAchievements(before, achievementsAfter);
-
-  return formatAchievementUnlockMessage(newlyUnlocked);
+  return getNewlyUnlockedAchievements(before, achievementsAfter);
 }
 
-async function buildVisitAddedMessage(
+async function notifyAchievements(ctx: Context, before: Achievement[], isNew: boolean) {
+  if (!isNew || !ctx.chat) return;
+
+  const { formatSingleAchievementMessage } = await import("@/lib/achievements");
+  const newlyUnlocked = await getNewlyUnlocked(before);
+
+  for (const achievement of newlyUnlocked) {
+    await ctx.api.sendMessage(ctx.chat.id, formatSingleAchievementMessage(achievement), {
+      parse_mode: "HTML",
+    });
+  }
+}
+
+async function addPlaceVerified(
+  ctx: Context,
   place: GeocodeResult,
-  isNew: boolean,
-  alternativesCount: number,
   achievementsBefore: Achievement[]
-): Promise<string> {
-  const statusLine = isNew
-    ? "✅ Додано на карту!"
-    : "ℹ️ Вже було на карті — оновив відмітку.";
+): Promise<{ visitId: string; isNew: boolean }> {
+  const { visit, isNew } = await addCityFromGeocodeVerified(place, {
+    source: "telegram",
+  });
 
-  const alternativesHint =
-    alternativesCount > 0
-      ? `\n\n<i>Є ще ${alternativesCount} варіант(и) — «Обрати інше»</i>`
-      : "";
+  await notifyAchievements(ctx, achievementsBefore, isNew);
 
-  const achievementText = await getAchievementUnlockText(achievementsBefore, isNew);
-
-  return `${statusLine}\n\n${formatPlaceLine(place)}${alternativesHint}${achievementText}`;
+  return { visitId: visit.id, isNew };
 }
 
 function buildAddedKeyboard(visitId: string | null, hasAlternatives: boolean): InlineKeyboard {
@@ -149,13 +149,16 @@ async function autoAddCity(ctx: Context, query: string) {
   const loading = await ctx.reply("Шукаю і додаю...");
 
   try {
-    const places = await searchPlaces(query.trim(), 5);
+    const places = await searchPlacesRobust(query.trim(), 5);
 
     if (places.length === 0) {
       await ctx.api.editMessageText(
         loading.chat.id,
         loading.message_id,
-        `Нічого не знайшов за «${query}».\nСпробуй інакше або додай країну: «Paris France».`
+        `❌ Не знайшов «${query}».\n\n` +
+          `Спробуй з країною:\n` +
+          `<code>${query}, Poland</code>\n` +
+          `<code>${query}, France</code>`
       );
       return;
     }
@@ -165,36 +168,39 @@ async function autoAddCity(ctx: Context, query: string) {
     const { computeAchievements } = await import("@/lib/achievements");
     const achievementsBefore = computeAchievements(await getAllVisits());
 
-    const { visit, isNew } = await createVisitFromGeocode(best, { source: "telegram" });
+    const { visitId, isNew } = await addPlaceVerified(ctx, best, achievementsBefore);
 
     sessions.set(userId, {
       places,
       query,
-      autoAddedVisitId: isNew ? visit.id : undefined,
+      autoAddedVisitId: isNew ? visitId : undefined,
     });
 
-    const message = await buildVisitAddedMessage(
-      best,
-      isNew,
-      places.length - 1,
-      achievementsBefore
-    );
+    const statusLine = isNew
+      ? "✅ Додано на карту!"
+      : "✅ Вже на карті (перевірено)";
+
+    const alternativesHint =
+      places.length > 1
+        ? `\n\n<i>Є ще ${places.length - 1} варіант(и) — «Обрати інше»</i>`
+        : "";
 
     await ctx.api.editMessageText(
       loading.chat.id,
       loading.message_id,
-      message,
+      `${statusLine}\n\n${formatPlaceLine(best)}${alternativesHint}`,
       {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
-        reply_markup: buildAddedKeyboard(isNew ? visit.id : null, places.length > 1),
+        reply_markup: buildAddedKeyboard(isNew ? visitId : null, places.length > 1),
       }
     );
-  } catch {
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "невідома помилка";
     await ctx.api.editMessageText(
       loading.chat.id,
       loading.message_id,
-      "Помилка. Спробуй ще раз через хвилину."
+      `❌ Не вдалося додати «${query}».\n\n${detail}\n\nСпробуй ще раз або уточни країну.`
     );
   }
 }
@@ -260,23 +266,23 @@ async function handlePlacePick(ctx: Context, index: number) {
     const { computeAchievements } = await import("@/lib/achievements");
     const achievementsBefore = computeAchievements(await getAllVisits());
 
-    const { visit, isNew } = await createVisitFromGeocode(place, { source: "telegram" });
-    session.autoAddedVisitId = isNew ? visit.id : undefined;
+    const { visitId, isNew } = await addPlaceVerified(ctx, place, achievementsBefore);
+    session.autoAddedVisitId = isNew ? visitId : undefined;
 
-    const statusLine = isNew ? "✅ Замінено на:" : "ℹ️ Вже було на карті:";
-    const achievementText = await getAchievementUnlockText(achievementsBefore, isNew);
+    const statusLine = isNew ? "✅ Замінено на:" : "✅ Вже на карті (перевірено)";
 
     await ctx.editMessageText(
-      `${statusLine}\n\n${formatPlaceLine(place)}${achievementText}`,
+      `${statusLine}\n\n${formatPlaceLine(place)}`,
       {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
-        reply_markup: buildAddedKeyboard(isNew ? visit.id : null, session.places.length > 1),
+        reply_markup: buildAddedKeyboard(isNew ? visitId : null, session.places.length > 1),
       }
     );
     await ctx.answerCallbackQuery({ text: isNew ? "Оновлено!" : "Ок" });
-  } catch {
-    await ctx.answerCallbackQuery({ text: "Помилка збереження" });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Помилка";
+    await ctx.answerCallbackQuery({ text: detail });
   }
 }
 

@@ -155,6 +155,32 @@ export async function createVisitFromGeocode(
   return { visit, isNew: true };
 }
 
+export async function addCityFromGeocodeVerified(
+  place: GeocodeResult,
+  options?: {
+    notes?: string;
+    rating?: number;
+    visitedAt?: Date | null;
+    source?: string;
+  }
+): Promise<{ visit: Visit; isNew: boolean }> {
+  const result = await createVisitFromGeocode(place, options);
+
+  const verified = await getVisitById(result.visit.id);
+  if (!verified) {
+    throw new Error(`Не вдалося підтвердити збереження «${place.city}»`);
+  }
+
+  if (
+    Math.abs(verified.latitude - place.latitude) > 0.01 ||
+    Math.abs(verified.longitude - place.longitude) > 0.01
+  ) {
+    throw new Error(`Координати «${place.city}» не збіглися після збереження`);
+  }
+
+  return { visit: verified, isNew: result.isNew };
+}
+
 export async function deleteVisit(id: string): Promise<boolean> {
   const db = getDb();
   const result = await db

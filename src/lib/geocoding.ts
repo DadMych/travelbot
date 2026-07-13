@@ -254,6 +254,68 @@ export async function searchPlaces(
   });
 }
 
+async function searchPlacesBroad(
+  query: string,
+  limit = 5
+): Promise<GeocodeResult[]> {
+  const params = new URLSearchParams({
+    q: query,
+    format: "json",
+    addressdetails: "1",
+    limit: String(Math.max(limit * 3, 10)),
+    "accept-language": "uk,en",
+  });
+
+  const response = await nominatimFetch(
+    `https://nominatim.openstreetmap.org/search?${params}`,
+    { headers: NOMINATIM_HEADERS }
+  );
+
+  if (!response.ok) return [];
+
+  const data = (await response.json()) as NominatimItem[];
+  const skipClasses = new Set(["waterway", "natural", "landuse", "highway"]);
+
+  const results: GeocodeResult[] = [];
+  const seen = new Set<string>();
+
+  for (const item of data) {
+    if (skipClasses.has(item.class)) continue;
+    if (item.class === "place" || item.class === "boundary" || item.class === "amenity") {
+      const result = toResult(item);
+      const key = `${result.city}|${result.countryCode}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push(result);
+      if (results.length >= limit) break;
+    }
+  }
+
+  return results;
+}
+
+export async function searchPlacesRobust(
+  query: string,
+  limit = 5
+): Promise<GeocodeResult[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const variants = [trimmed, trimmed.replace(/\s+/g, " ")];
+
+  for (const variant of variants) {
+    const results = await searchPlaces(variant, limit);
+    if (results.length > 0) return results;
+  }
+
+  for (const variant of variants) {
+    const results = await searchPlacesBroad(variant, limit);
+    if (results.length > 0) return results;
+  }
+
+  return [];
+}
+
 export async function reverseGeocode(
   lat: number,
   lng: number

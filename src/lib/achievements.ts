@@ -260,6 +260,14 @@ export function formatAchievementUnlockMessage(achievements: Achievement[]): str
   return `\n\n${header}\n\n${blocks.join("\n\n")}`;
 }
 
+export function formatSingleAchievementMessage(achievement: Achievement): string {
+  return (
+    `🎉 <b>Нова ачивка!</b>\n\n` +
+    `🏆 <b>${achievement.title}</b>\n` +
+    `<i>${achievement.description}</i>`
+  );
+}
+
 export const TIER_COLORS: Record<Achievement["tier"], string> = {
   bronze: "text-amber-600 bg-amber-500/10 border-amber-500/20",
   silver: "text-slate-300 bg-slate-400/10 border-slate-400/20",

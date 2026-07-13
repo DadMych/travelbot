@@ -1,5 +1,5 @@
 import { pgTable, text, timestamp, doublePrecision, integer, uuid, jsonb } from "drizzle-orm/pg-core";
-import type { Geometry } from "geojson";
+import type { FeatureCollection, Geometry } from "geojson";
 
 export const visits = pgTable("visits", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -20,6 +20,15 @@ export const visits = pgTable("visits", {
   rating: integer("rating"),
   source: text("source").notNull().default("telegram"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const boundaryCache = pgTable("boundary_cache", {
+  cacheKey: text("cache_key").primaryKey(),
+  kind: text("kind").notNull(),
+  label: text("label"),
+  countryCode: text("country_code"),
+  payload: jsonb("payload").$type<FeatureCollection>().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type Visit = typeof visits.$inferSelect;

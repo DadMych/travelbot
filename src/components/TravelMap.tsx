@@ -199,6 +199,25 @@ export function TravelMap({
                 "line-opacity": 0.35,
               }}
             />
+            <Layer
+              id="region-labels"
+              type="symbol"
+              minzoom={5}
+              layout={{
+                "text-field": ["get", "label"],
+                "text-size": ["interpolate", ["linear"], ["zoom"], 5, 9, 8, 11],
+                "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+                "text-anchor": "center",
+                "text-allow-overlap": false,
+                "text-max-width": 10,
+              }}
+              paint={{
+                "text-color": "#c4b5fd",
+                "text-halo-color": "#0f172a",
+                "text-halo-width": 1.5,
+                "text-opacity": 0.85,
+              }}
+            />
           </Source>
         )}
 

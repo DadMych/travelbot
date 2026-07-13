@@ -5,7 +5,7 @@ import { computeAchievements, computeStats } from "@/lib/achievements";
 import { getAdminBoundaries } from "@/lib/admin-boundaries";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
 
