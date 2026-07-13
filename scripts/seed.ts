@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { config } from "dotenv";
-import { searchPlaces, fetchPlaceBoundary } from "../src/lib/geocoding";
+import { searchPlaces } from "../src/lib/geocoding";
 import { getDb, schema } from "../src/lib/db";
 import { and, eq } from "drizzle-orm";
 import { sleep } from "../src/lib/geojson";
@@ -48,8 +48,7 @@ async function seedEntry(entry: SeedEntry, index: number, total: number) {
     return "skipped";
   }
 
-  const boundary = await fetchPlaceBoundary(place.id);
-  await sleep(1100);
+  const boundary = null;
 
   const visitedAt =
     entry.year !== undefined ? yearToDate(entry.year) : null;
@@ -64,6 +63,8 @@ async function seedEntry(entry: SeedEntry, index: number, total: number) {
     latitude: place.latitude,
     longitude: place.longitude,
     osmPlaceId: place.id,
+    osmType: place.osmType ?? null,
+    osmId: place.osmId ? String(place.osmId) : null,
     boundary,
     visitedAt,
     notes: entry.notes,

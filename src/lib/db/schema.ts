@@ -12,6 +12,8 @@ export const visits = pgTable("visits", {
   latitude: doublePrecision("latitude").notNull(),
   longitude: doublePrecision("longitude").notNull(),
   osmPlaceId: text("osm_place_id"),
+  osmType: text("osm_type"),
+  osmId: text("osm_id"),
   boundary: jsonb("boundary").$type<Geometry | null>(),
   visitedAt: timestamp("visited_at", { withTimezone: true }),
   notes: text("notes"),

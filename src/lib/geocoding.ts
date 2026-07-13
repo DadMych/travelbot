@@ -114,6 +114,18 @@ const CONTINENT_BY_COUNTRY: Record<string, string> = {
   NG: "Africa",
 };
 
+function normalizeOsmType(type: string): string {
+  const lower = type.toLowerCase();
+  if (lower === "relation" || lower === "r") return "R";
+  if (lower === "way" || lower === "w") return "W";
+  if (lower === "node" || lower === "n") return "N";
+  return type.charAt(0).toUpperCase();
+}
+
+export function toOsmRef(type: string, id: number | string): string {
+  return `${normalizeOsmType(type)}${id}`;
+}
+
 function extractCity(item: NominatimItem): string {
   const address = item.address;
   const fromAddress =
@@ -157,7 +169,7 @@ function toResult(item: NominatimItem): GeocodeResult {
     longitude: parseFloat(item.lon),
     displayName,
     type: item.type,
-    osmType: item.osm_type,
+    osmType: item.osm_type ? normalizeOsmType(item.osm_type) : undefined,
     osmId: item.osm_id,
   };
 }
@@ -206,7 +218,17 @@ export async function searchPlaces(
       (item.class === "boundary" && item.type === "administrative")
   );
 
-  const pool = placeItems.length > 0 ? placeItems : data.filter((item) => item.class !== "waterway");
+  const sorted = [...placeItems].sort((a, b) => {
+    const rank = (item: NominatimItem) => {
+      const t = item.osm_type?.toLowerCase();
+      if (t === "relation" || t === "r") return 0;
+      if (t === "way" || t === "w") return 1;
+      return 2;
+    };
+    return rank(a) - rank(b);
+  });
+
+  const pool = sorted.length > 0 ? sorted : data.filter((item) => item.class !== "waterway");
 
   const seen = new Set<string>();
   const results: GeocodeResult[] = [];
@@ -263,7 +285,7 @@ async function resolveOsmIds(
   osmId?: number
 ): Promise<string | null> {
   if (osmType && osmId) {
-    return `${osmType}${osmId}`;
+    return toOsmRef(osmType, osmId);
   }
 
   const response = await nominatimFetch(
@@ -276,7 +298,48 @@ async function resolveOsmIds(
   const details = (await response.json()) as NominatimDetails;
   if (!details.osm_type || !details.osm_id) return null;
 
-  return `${details.osm_type}${details.osm_id}`;
+  return toOsmRef(details.osm_type, details.osm_id);
+}
+
+export async function fetchPlaceBoundariesBatch(
+  osmRefs: string[]
+): Promise<Map<string, Geometry>> {
+  const results = new Map<string, Geometry>();
+  const unique = [...new Set(osmRefs.filter(Boolean))];
+
+  for (let i = 0; i < unique.length; i += 50) {
+    const chunk = unique.slice(i, i + 50);
+    const params = new URLSearchParams({
+      osm_ids: chunk.join(","),
+      format: "json",
+      polygon_geojson: "1",
+      polygon_threshold: "0.002",
+    });
+
+    const response = await nominatimFetch(
+      `https://nominatim.openstreetmap.org/lookup?${params}`,
+      { headers: NOMINATIM_HEADERS }
+    );
+
+    if (!response.ok) continue;
+
+    const data = (await response.json()) as NominatimItem[];
+    for (const item of data) {
+      if (!item.geojson || !item.osm_type || !item.osm_id) continue;
+      if (!["Polygon", "MultiPolygon"].includes(item.geojson.type)) continue;
+      results.set(toOsmRef(item.osm_type, item.osm_id), item.geojson);
+    }
+  }
+
+  return results;
+}
+
+export async function resolveOsmRef(
+  placeId: string,
+  osmType?: string,
+  osmId?: number
+): Promise<string | null> {
+  return resolveOsmIds(placeId, osmType, osmId);
 }
 
 export async function fetchPlaceBoundary(

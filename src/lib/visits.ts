@@ -1,6 +1,12 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
-import { fetchPlaceBoundary, findPlaceBoundary, searchPlaces, type GeocodeResult } from "@/lib/geocoding";
+import {
+  fetchPlaceBoundariesBatch,
+  fetchPlaceBoundary,
+  resolveOsmRef,
+  searchPlaces,
+  type GeocodeResult,
+} from "@/lib/geocoding";
 import { sleep } from "@/lib/geojson";
 import type { NewVisit, Visit } from "@/lib/db/schema";
 import type { Geometry } from "geojson";
@@ -26,39 +32,16 @@ export async function getVisitById(id: string): Promise<Visit | undefined> {
   return visit;
 }
 
-async function resolveBoundary(place: GeocodeResult): Promise<Geometry | null> {
+async function boundaryFromPlace(place: GeocodeResult): Promise<Geometry | null> {
   if (place.boundary) return place.boundary;
+  if (place.osmType && place.osmId) {
+    const batch = await fetchPlaceBoundariesBatch([`${place.osmType}${place.osmId}`]);
+    return batch.get(`${place.osmType}${place.osmId}`) ?? null;
+  }
   return fetchPlaceBoundary(place.id, place.osmType, place.osmId);
 }
 
-async function saveVisitBoundary(
-  visitId: string,
-  boundary: Geometry | null,
-  osmPlaceId: string
-): Promise<Visit | undefined> {
-  const db = getDb();
-  const [visit] = await db
-    .update(schema.visits)
-    .set({ boundary, osmPlaceId })
-    .where(eq(schema.visits.id, visitId))
-    .returning();
-  return visit;
-}
-
-export async function enrichVisitBoundary(
-  visit: Visit,
-  _placeId?: string
-): Promise<Visit | null> {
-  if (visit.boundary) return visit;
-
-  const found = await findPlaceBoundary(visit.city, visit.country);
-  if (!found) return null;
-
-  const updated = await saveVisitBoundary(visit.id, found.boundary, found.osmPlaceId);
-  return updated ?? null;
-}
-
-export async function backfillVisitBoundaries(limit = 10): Promise<number> {
+export async function backfillVisitBoundaries(limit = 50): Promise<number> {
   const db = getDb();
   const pending = await db
     .select()
@@ -66,12 +49,55 @@ export async function backfillVisitBoundaries(limit = 10): Promise<number> {
     .where(isNull(schema.visits.boundary))
     .limit(limit);
 
+  if (pending.length === 0) return 0;
+
+  for (const visit of pending) {
+    if (visit.osmType && visit.osmId) continue;
+    const places = await searchPlaces(`${visit.city}, ${visit.country}`, 1);
+    const place = places[0];
+    if (place?.osmType && place.osmId) {
+      await db
+        .update(schema.visits)
+        .set({
+          osmType: place.osmType,
+          osmId: String(place.osmId),
+          osmPlaceId: place.id,
+        })
+        .where(eq(schema.visits.id, visit.id));
+      visit.osmType = place.osmType;
+      visit.osmId = String(place.osmId);
+    } else if (visit.osmPlaceId) {
+      const ref = await resolveOsmRef(visit.osmPlaceId);
+      if (ref) {
+        await db
+          .update(schema.visits)
+          .set({ osmType: ref.charAt(0), osmId: ref.slice(1) })
+          .where(eq(schema.visits.id, visit.id));
+        visit.osmType = ref.charAt(0);
+        visit.osmId = ref.slice(1);
+      }
+    }
+    await sleep(1100);
+  }
+
+  const refs = pending
+    .filter((v) => v.osmType && v.osmId)
+    .map((v) => `${v.osmType}${v.osmId}`);
+
+  if (refs.length === 0) return 0;
+
+  const boundaries = await fetchPlaceBoundariesBatch(refs);
   let updated = 0;
 
   for (const visit of pending) {
-    const enriched = await enrichVisitBoundary(visit);
-    if (enriched) updated += 1;
-    await sleep(1100);
+    if (!visit.osmType || !visit.osmId) continue;
+    const boundary = boundaries.get(`${visit.osmType}${visit.osmId}`);
+    if (!boundary) continue;
+    await db
+      .update(schema.visits)
+      .set({ boundary })
+      .where(eq(schema.visits.id, visit.id));
+    updated += 1;
   }
 
   return updated;
@@ -100,14 +126,10 @@ export async function createVisitFromGeocode(
     .limit(1);
 
   if (existing) {
-    if (!existing.boundary) {
-      const enriched = await enrichVisitBoundary(existing, place.id);
-      return { visit: enriched ?? existing, isNew: false };
-    }
     return { visit: existing, isNew: false };
   }
 
-  const boundary = await resolveBoundary(place);
+  const boundary = await boundaryFromPlace(place);
 
   const data: NewVisit = {
     name: place.name,
@@ -119,6 +141,8 @@ export async function createVisitFromGeocode(
     latitude: place.latitude,
     longitude: place.longitude,
     osmPlaceId: place.id,
+    osmType: place.osmType ?? null,
+    osmId: place.osmId ? String(place.osmId) : null,
     boundary,
     notes: options?.notes,
     rating: options?.rating,
