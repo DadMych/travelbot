@@ -42,8 +42,44 @@ export function TravelMap({
 }: TravelMapProps) {
   const mapRef = useRef<MapRef>(null);
   const [popupVisit, setPopupVisit] = useState<Visit | null>(null);
+  const [boundaries, setBoundaries] = useState<AdminBoundaries>(
+    adminBoundaries ?? { countries: EMPTY_FC, regions: EMPTY_FC }
+  );
+  const [boundariesLoading, setBoundariesLoading] = useState(!adminBoundaries);
 
-  const boundaries = adminBoundaries ?? { countries: EMPTY_FC, regions: EMPTY_FC };
+  useEffect(() => {
+    if (adminBoundaries) {
+      setBoundaries(adminBoundaries);
+      setBoundariesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45_000);
+
+    setBoundariesLoading(true);
+    fetch("/api/admin-boundaries", { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setBoundaries({
+          countries: data.countries ?? EMPTY_FC,
+          regions: data.regions ?? EMPTY_FC,
+        });
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setBoundariesLoading(false);
+        clearTimeout(timeout);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, [adminBoundaries, visits.length]);
 
   const selectedVisit = useMemo(
     () => visits.find((v) => v.id === selectedId) ?? null,
@@ -344,6 +380,7 @@ export function TravelMap({
       </Map>
 
       <div className="pointer-events-none absolute right-3 top-3 rounded-lg border border-white/10 bg-card/90 px-2.5 py-1.5 text-[10px] text-muted backdrop-blur-md">
+        {boundariesLoading && "Межі… · "}
         {showCountries && `${boundaries.countries.features.length} країн · `}
         {showRegions && `${boundaries.regions.features.length} областей · `}
         {showBoundaries && `${visitsWithBoundary.length} міст`}

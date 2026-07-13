@@ -1,15 +1,10 @@
 import { NextResponse } from "next/server";
-import type { FeatureCollection } from "geojson";
 import { getAllVisits } from "@/lib/visits";
 import { computeAchievements, computeStats } from "@/lib/achievements";
-import { getAdminBoundaries } from "@/lib/admin-boundaries";
 import { computeQuests, buildTimeline } from "@/lib/quests";
-import { getAppSettings } from "@/lib/settings";
+import { getAppSettings, type AppSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
-
-const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 export async function GET() {
   try {
@@ -17,25 +12,20 @@ export async function GET() {
     const stats = computeStats(visits);
     const achievements = computeAchievements(visits);
 
-    let adminBoundaries = {
-      countries: EMPTY_FC,
-      regions: EMPTY_FC,
-    };
-
+    let settings: AppSettings = { travelStatus: "home", updatedAt: new Date() };
     try {
-      adminBoundaries = await getAdminBoundaries(visits);
-    } catch (boundaryError) {
-      console.error("Failed to load admin boundaries:", boundaryError);
+      settings = await getAppSettings();
+    } catch (settingsError) {
+      console.error("Failed to load settings:", settingsError);
     }
 
     return NextResponse.json({
       visits,
       stats,
       achievements,
-      adminBoundaries,
       quests: computeQuests(visits),
       timeline: buildTimeline(visits),
-      settings: await getAppSettings(),
+      settings,
     });
   } catch (error) {
     console.error("Failed to fetch visits:", error);

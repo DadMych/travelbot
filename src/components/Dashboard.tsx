@@ -2,7 +2,6 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FeatureCollection } from "geojson";
 import type { Visit } from "@/lib/db/schema";
 import type { Achievement, TravelStats } from "@/lib/achievements";
 import type { Quest, TimelineBucket } from "@/lib/quests";
@@ -47,16 +46,10 @@ const TravelMap = dynamic(
 
 type Tab = "places" | "quests" | "achievements";
 
-interface AdminBoundaries {
-  countries: FeatureCollection;
-  regions: FeatureCollection;
-}
-
 interface DashboardData {
   visits: Visit[];
   stats: TravelStats;
   achievements: Achievement[];
-  adminBoundaries: AdminBoundaries;
   quests: Quest[];
   timeline: TimelineBucket[];
   settings: { travelStatus: TravelStatus; updatedAt: string };
@@ -90,7 +83,12 @@ export function Dashboard() {
     else setRefreshing(true);
 
     try {
-      const res = await fetch("/api/visits");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20_000);
+
+      const res = await fetch("/api/visits", { signal: controller.signal });
+      clearTimeout(timeout);
+
       if (!res.ok) throw new Error("Failed to load");
       const json = await res.json();
       setData(json);
@@ -167,7 +165,7 @@ export function Dashboard() {
     );
   }
 
-  const { stats, achievements, adminBoundaries, quests, timeline, settings } = data;
+  const { stats, achievements, quests, timeline, settings } = data;
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
   const questProgress = quests[0]?.progress ?? 0;
 
@@ -245,7 +243,6 @@ export function Dashboard() {
             selectedId={selectedId}
             onSelectVisit={(v) => setSelectedId(v?.id)}
             layerSettings={mapLayers}
-            adminBoundaries={adminBoundaries}
           />
         </main>
       </div>

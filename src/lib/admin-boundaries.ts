@@ -13,6 +13,24 @@ const UA_OBLASTS_URL =
 const ADMIN1_STATES_URL =
   "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson";
 
+let admin1Memory: FeatureCollection | null = null;
+
+async function loadAdmin1Filtered(countryCodes: Set<string>): Promise<FeatureCollection> {
+  if (!admin1Memory) {
+    admin1Memory = await fetchGeoJson(ADMIN1_STATES_URL);
+  }
+
+  if (countryCodes.size === 0) return emptyCollection();
+
+  return {
+    type: "FeatureCollection",
+    features: admin1Memory.features.filter((feature) => {
+      const iso = feature.properties?.iso_a2 as string | undefined;
+      return iso && countryCodes.has(iso);
+    }),
+  };
+}
+
 async function fetchGeoJson(url: string): Promise<FeatureCollection> {
   const response = await fetch(url, { next: { revalidate: 86_400 } });
   if (!response.ok) {
@@ -123,9 +141,8 @@ async function getForeignRegionBoundaries(visits: Visit[]): Promise<FeatureColle
   const foreignVisits = visits.filter((v) => v.countryCode !== "UA");
   if (foreignVisits.length === 0) return emptyCollection();
 
-  const admin1 = await getCachedDataset("dataset:admin1-states", "dataset", () =>
-    fetchGeoJson(ADMIN1_STATES_URL)
-  );
+  const codes = new Set(foreignVisits.map((v) => v.countryCode));
+  const admin1 = await loadAdmin1Filtered(codes);
 
   return matchRegionsForVisits(
     foreignVisits,
