@@ -237,6 +237,29 @@ export function getUnlockedCount(achievements: Achievement[]): number {
   return achievements.filter((a) => a.unlocked).length;
 }
 
+export function getNewlyUnlockedAchievements(
+  before: Achievement[],
+  after: Achievement[]
+): Achievement[] {
+  const beforeIds = new Set(before.filter((a) => a.unlocked).map((a) => a.id));
+  return after.filter((a) => a.unlocked && !beforeIds.has(a.id));
+}
+
+export function formatAchievementUnlockMessage(achievements: Achievement[]): string {
+  if (achievements.length === 0) return "";
+
+  const blocks = achievements.map(
+    (a) => `🏆 <b>${a.title}</b>\n<i>${a.description}</i>`
+  );
+
+  const header =
+    achievements.length === 1
+      ? "🎉 Нова ачивка!"
+      : `🎉 ${achievements.length} нові ачивки!`;
+
+  return `\n\n${header}\n\n${blocks.join("\n\n")}`;
+}
+
 export const TIER_COLORS: Record<Achievement["tier"], string> = {
   bronze: "text-amber-600 bg-amber-500/10 border-amber-500/20",
   silver: "text-slate-300 bg-slate-400/10 border-slate-400/20",

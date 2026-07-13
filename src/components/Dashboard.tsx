@@ -5,9 +5,16 @@ import { useCallback, useEffect, useState } from "react";
 import type { Visit } from "@/lib/db/schema";
 import type { Achievement, TravelStats } from "@/lib/achievements";
 import { AchievementPanel } from "@/components/AchievementPanel";
+import { MapLayerControls } from "@/components/MapLayerControls";
 import { StatCard } from "@/components/StatCard";
 import { VisitList } from "@/components/VisitList";
 import { cn } from "@/lib/utils";
+import {
+  DEFAULT_MAP_LAYERS,
+  loadMapLayerSettings,
+  saveMapLayerSettings,
+  type MapLayerSettings,
+} from "@/lib/map-layers";
 import {
   Globe,
   LayoutGrid,
@@ -45,6 +52,16 @@ export function Dashboard() {
   const [selectedId, setSelectedId] = useState<string>();
   const [tab, setTab] = useState<Tab>("places");
   const [refreshing, setRefreshing] = useState(false);
+  const [mapLayers, setMapLayers] = useState<MapLayerSettings>(DEFAULT_MAP_LAYERS);
+
+  useEffect(() => {
+    setMapLayers(loadMapLayerSettings());
+  }, []);
+
+  const handleMapLayersChange = useCallback((settings: MapLayerSettings) => {
+    setMapLayers(settings);
+    saveMapLayerSettings(settings);
+  }, []);
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -137,6 +154,8 @@ export function Dashboard() {
             <StatCard label="Ачивки" value={unlockedCount} icon={Trophy} accent="text-yellow-400" />
           </div>
 
+          <MapLayerControls settings={mapLayers} onChange={handleMapLayersChange} />
+
           <div className="flex rounded-xl border border-white/6 bg-white/2 p-1">
             <TabButton
               active={tab === "places"}
@@ -171,6 +190,7 @@ export function Dashboard() {
             visits={visits}
             selectedId={selectedId}
             onSelectVisit={(v) => setSelectedId(v?.id)}
+            layerSettings={mapLayers}
           />
         </main>
       </div>

@@ -395,3 +395,58 @@ export async function findPlaceBoundary(
 
   return null;
 }
+
+export async function searchAdministrativeBoundary(
+  query: string,
+  countryCode?: string
+): Promise<{ osmRef: string; geometry: Geometry | null; name: string } | null> {
+  const params = new URLSearchParams({
+    q: query,
+    format: "json",
+    addressdetails: "1",
+    limit: "8",
+    polygon_geojson: "1",
+    polygon_threshold: "0.005",
+    "accept-language": "uk,en",
+  });
+
+  if (countryCode) {
+    params.set("countrycodes", countryCode.toLowerCase());
+  }
+
+  const response = await nominatimFetch(
+    `https://nominatim.openstreetmap.org/search?${params}`,
+    { headers: NOMINATIM_HEADERS }
+  );
+
+  if (!response.ok) return null;
+
+  const data = (await response.json()) as NominatimItem[];
+
+  const isRelation = (item: NominatimItem) => {
+    const t = item.osm_type?.toLowerCase();
+    return t === "relation" || t === "r";
+  };
+
+  const adminItems = data.filter(
+    (item) => item.class === "boundary" && item.type === "administrative"
+  );
+
+  const best =
+    adminItems.find(isRelation) ??
+    adminItems[0] ??
+    data.find((item) => item.class === "boundary");
+
+  if (!best?.osm_type || !best.osm_id) return null;
+
+  const geometry =
+    best.geojson && ["Polygon", "MultiPolygon"].includes(best.geojson.type)
+      ? best.geojson
+      : null;
+
+  return {
+    osmRef: toOsmRef(best.osm_type, best.osm_id),
+    geometry,
+    name: best.display_name.split(",")[0]?.trim() ?? query,
+  };
+}

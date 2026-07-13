@@ -9,45 +9,80 @@ import Map, {
   Source,
 } from "react-map-gl/maplibre";
 import type { MapRef } from "react-map-gl/maplibre";
+import type { FeatureCollection } from "geojson";
 import type { Visit } from "@/lib/db/schema";
 import { geometryBBox, visitsToFeatureCollection } from "@/lib/geojson";
+import type { MapLayerSettings } from "@/lib/map-layers";
 import { formatDate } from "@/lib/utils";
 import { Calendar, MapPin, X } from "lucide-react";
 
 const MAP_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
+const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
+
 interface TravelMapProps {
   visits: Visit[];
   selectedId?: string;
   onSelectVisit?: (visit: Visit | null) => void;
+  layerSettings: MapLayerSettings;
 }
 
-export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps) {
+export function TravelMap({
+  visits,
+  selectedId,
+  onSelectVisit,
+  layerSettings,
+}: TravelMapProps) {
   const mapRef = useRef<MapRef>(null);
   const [popupVisit, setPopupVisit] = useState<Visit | null>(null);
+  const [adminBoundaries, setAdminBoundaries] = useState<{
+    countries: FeatureCollection;
+    regions: FeatureCollection;
+  }>({ countries: EMPTY_FC, regions: EMPTY_FC });
 
   const selectedVisit = useMemo(
     () => visits.find((v) => v.id === selectedId) ?? null,
     [visits, selectedId]
   );
 
+  const showBoundaries = layerSettings.cityDisplay === "boundaries";
+
   const visitsWithBoundary = useMemo(
-    () => visits.filter((v) => v.boundary),
-    [visits]
+    () => (showBoundaries ? visits.filter((v) => v.boundary) : []),
+    [visits, showBoundaries]
   );
 
-  const visitsWithoutBoundary = useMemo(
-    () => visits.filter((v) => !v.boundary),
-    [visits]
-  );
+  const markerVisits = useMemo(() => {
+    if (layerSettings.cityDisplay === "markers") return visits;
+    return visits.filter((v) => !v.boundary);
+  }, [visits, layerSettings.cityDisplay]);
 
   const boundaryData = useMemo(
-    () => visitsToFeatureCollection(visits, selectedId),
-    [visits, selectedId]
+    () => visitsToFeatureCollection(visitsWithBoundary, selectedId),
+    [visitsWithBoundary, selectedId]
   );
 
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/admin-boundaries")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setAdminBoundaries({
+          countries: data.countries ?? EMPTY_FC,
+          regions: data.regions ?? EMPTY_FC,
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visits.length]);
+
   const viewState = useMemo(() => {
-    if (selectedVisit?.boundary) {
+    if (selectedVisit?.boundary && showBoundaries) {
       const bbox = geometryBBox(selectedVisit.boundary);
       if (bbox) {
         return {
@@ -79,13 +114,13 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
       latitude: (Math.min(...lats) + Math.max(...lats)) / 2,
       zoom: visits.length === 1 ? 8 : 2,
     };
-  }, [visits, selectedVisit]);
+  }, [visits, selectedVisit, showBoundaries]);
 
   useEffect(() => {
     const map = mapRef.current?.getMap();
     if (!map || !selectedVisit) return;
 
-    if (selectedVisit.boundary) {
+    if (selectedVisit.boundary && showBoundaries) {
       const bbox = geometryBBox(selectedVisit.boundary);
       if (bbox) {
         map.fitBounds(
@@ -104,7 +139,7 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
       zoom: 10,
       duration: 800,
     });
-  }, [selectedVisit]);
+  }, [selectedVisit, showBoundaries]);
 
   const handleVisitClick = useCallback(
     (visit: Visit) => {
@@ -121,6 +156,9 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
       ? { longitude: 20, latitude: 30, zoom: 2 }
       : viewState;
 
+  const interactiveLayerIds =
+    showBoundaries && visitsWithBoundary.length > 0 ? ["city-fill"] : undefined;
+
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl border border-white/8">
       <Map
@@ -130,7 +168,7 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
         mapStyle={MAP_STYLE}
         attributionControl={false}
         reuseMaps
-        interactiveLayerIds={visitsWithBoundary.length > 0 ? ["city-fill"] : undefined}
+        interactiveLayerIds={interactiveLayerIds}
         onClick={(e) => {
           const feature = e.features?.[0];
           const visitId = feature?.properties?.visitId as string | undefined;
@@ -141,11 +179,48 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
       >
         <NavigationControl position="top-right" showCompass={false} />
 
-        {boundaryData.features.length > 0 && (
+        {layerSettings.showCountryBorders && adminBoundaries.countries.features.length > 0 && (
+          <Source id="country-boundaries" type="geojson" data={adminBoundaries.countries}>
+            <Layer
+              id="country-outline"
+              type="line"
+              paint={{
+                "line-color": "#94a3b8",
+                "line-width": 1.5,
+                "line-opacity": 0.55,
+              }}
+            />
+          </Source>
+        )}
+
+        {layerSettings.showRegionBorders && adminBoundaries.regions.features.length > 0 && (
+          <Source id="region-boundaries" type="geojson" data={adminBoundaries.regions}>
+            <Layer
+              id="region-fill"
+              type="fill"
+              paint={{
+                "fill-color": "#a78bfa",
+                "fill-opacity": 0.08,
+              }}
+            />
+            <Layer
+              id="region-outline"
+              type="line"
+              paint={{
+                "line-color": "#c4b5fd",
+                "line-width": 2,
+                "line-opacity": 0.75,
+              }}
+            />
+          </Source>
+        )}
+
+        {showBoundaries && boundaryData.features.length > 0 && (
           <Source id="city-boundaries" type="geojson" data={boundaryData}>
             <Layer
               id="city-fill-glow"
               type="line"
+              layout={{ visibility: layerSettings.showCityOutline ? "visible" : "none" }}
               paint={{
                 "line-color": "#3b82f6",
                 "line-width": [
@@ -179,6 +254,7 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
             <Layer
               id="city-outline"
               type="line"
+              layout={{ visibility: layerSettings.showCityOutline ? "visible" : "none" }}
               paint={{
                 "line-color": [
                   "case",
@@ -214,7 +290,7 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
           </Source>
         )}
 
-        {visitsWithoutBoundary.map((visit) => (
+        {markerVisits.map((visit) => (
           <Marker
             key={visit.id}
             longitude={visit.longitude}

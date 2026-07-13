@@ -2,6 +2,7 @@ import { Bot, Context, InlineKeyboard, webhookCallback } from "grammy";
 import { searchPlaces, type GeocodeResult } from "@/lib/geocoding";
 import { createVisitFromGeocode, deleteVisit } from "@/lib/visits";
 import { isOwnerTelegramUser } from "@/lib/auth";
+import type { Achievement } from "@/lib/achievements";
 
 interface UserSession {
   places: GeocodeResult[];
@@ -32,6 +33,46 @@ function formatPlaceLine(place: GeocodeResult, index?: number): string {
   const prefix = index !== undefined ? `${index + 1}. ` : "";
   const region = place.region ? ` · ${place.region}` : "";
   return `${prefix}<b>${place.city}</b>, ${place.country}${region}`;
+}
+
+async function getAchievementUnlockText(
+  before: Achievement[],
+  isNew: boolean
+): Promise<string> {
+  if (!isNew) return "";
+
+  const { getAllVisits } = await import("@/lib/visits");
+  const {
+    computeAchievements,
+    getNewlyUnlockedAchievements,
+    formatAchievementUnlockMessage,
+  } = await import("@/lib/achievements");
+
+  const visits = await getAllVisits();
+  const achievementsAfter = computeAchievements(visits);
+  const newlyUnlocked = getNewlyUnlockedAchievements(before, achievementsAfter);
+
+  return formatAchievementUnlockMessage(newlyUnlocked);
+}
+
+async function buildVisitAddedMessage(
+  place: GeocodeResult,
+  isNew: boolean,
+  alternativesCount: number,
+  achievementsBefore: Achievement[]
+): Promise<string> {
+  const statusLine = isNew
+    ? "✅ Додано на карту!"
+    : "ℹ️ Вже було на карті — оновив відмітку.";
+
+  const alternativesHint =
+    alternativesCount > 0
+      ? `\n\n<i>Є ще ${alternativesCount} варіант(и) — «Обрати інше»</i>`
+      : "";
+
+  const achievementText = await getAchievementUnlockText(achievementsBefore, isNew);
+
+  return `${statusLine}\n\n${formatPlaceLine(place)}${alternativesHint}${achievementText}`;
 }
 
 function buildAddedKeyboard(visitId: string | null, hasAlternatives: boolean): InlineKeyboard {
@@ -120,6 +161,10 @@ async function autoAddCity(ctx: Context, query: string) {
     }
 
     const best = places[0];
+    const { getAllVisits } = await import("@/lib/visits");
+    const { computeAchievements } = await import("@/lib/achievements");
+    const achievementsBefore = computeAchievements(await getAllVisits());
+
     const { visit, isNew } = await createVisitFromGeocode(best, { source: "telegram" });
 
     sessions.set(userId, {
@@ -128,17 +173,17 @@ async function autoAddCity(ctx: Context, query: string) {
       autoAddedVisitId: isNew ? visit.id : undefined,
     });
 
-    const statusLine = isNew
-      ? "✅ Додано на карту!"
-      : "ℹ️ Вже було на карті — оновив відмітку.";
-
-    const alternativesHint =
-      places.length > 1 ? `\n\n<i>Є ще ${places.length - 1} варіант(и) — «Обрати інше»</i>` : "";
+    const message = await buildVisitAddedMessage(
+      best,
+      isNew,
+      places.length - 1,
+      achievementsBefore
+    );
 
     await ctx.api.editMessageText(
       loading.chat.id,
       loading.message_id,
-      `${statusLine}\n\n${formatPlaceLine(best)}${alternativesHint}`,
+      message,
       {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
@@ -211,13 +256,18 @@ async function handlePlacePick(ctx: Context, index: number) {
   }
 
   try {
+    const { getAllVisits } = await import("@/lib/visits");
+    const { computeAchievements } = await import("@/lib/achievements");
+    const achievementsBefore = computeAchievements(await getAllVisits());
+
     const { visit, isNew } = await createVisitFromGeocode(place, { source: "telegram" });
     session.autoAddedVisitId = isNew ? visit.id : undefined;
 
     const statusLine = isNew ? "✅ Замінено на:" : "ℹ️ Вже було на карті:";
+    const achievementText = await getAchievementUnlockText(achievementsBefore, isNew);
 
     await ctx.editMessageText(
-      `${statusLine}\n\n${formatPlaceLine(place)}`,
+      `${statusLine}\n\n${formatPlaceLine(place)}${achievementText}`,
       {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
