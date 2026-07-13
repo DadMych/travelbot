@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, doublePrecision, integer, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, doublePrecision, integer, uuid, jsonb } from "drizzle-orm/pg-core";
+import type { Geometry } from "geojson";
 
 export const visits = pgTable("visits", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -10,6 +11,8 @@ export const visits = pgTable("visits", {
   continent: text("continent"),
   latitude: doublePrecision("latitude").notNull(),
   longitude: doublePrecision("longitude").notNull(),
+  osmPlaceId: text("osm_place_id"),
+  boundary: jsonb("boundary").$type<Geometry | null>(),
   visitedAt: timestamp("visited_at", { withTimezone: true }).notNull().defaultNow(),
   notes: text("notes"),
   rating: integer("rating"),

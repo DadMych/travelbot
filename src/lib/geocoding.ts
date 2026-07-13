@@ -1,3 +1,5 @@
+import type { Geometry } from "geojson";
+
 export interface GeocodeResult {
   id: string;
   name: string;
@@ -10,6 +12,7 @@ export interface GeocodeResult {
   longitude: number;
   displayName: string;
   type: string;
+  boundary?: Geometry | null;
 }
 
 interface NominatimAddress {
@@ -32,7 +35,12 @@ interface NominatimItem {
   class: string;
   importance: number;
   address?: NominatimAddress;
+  geojson?: Geometry;
 }
+
+const NOMINATIM_HEADERS = {
+  "User-Agent": "TravelMapBot/1.0 (personal travel tracker)",
+};
 
 const CONTINENT_BY_COUNTRY: Record<string, string> = {
   RU: "Europe",
@@ -137,9 +145,7 @@ export async function searchPlaces(query: string, limit = 6): Promise<GeocodeRes
   const response = await fetch(
     `https://nominatim.openstreetmap.org/search?${params}`,
     {
-      headers: {
-        "User-Agent": "TravelMapBot/1.0 (personal travel tracker)",
-      },
+      headers: NOMINATIM_HEADERS,
       next: { revalidate: 3600 },
     }
   );
@@ -188,9 +194,7 @@ export async function reverseGeocode(
   const response = await fetch(
     `https://nominatim.openstreetmap.org/reverse?${params}`,
     {
-      headers: {
-        "User-Agent": "TravelMapBot/1.0 (personal travel tracker)",
-      },
+      headers: NOMINATIM_HEADERS,
     }
   );
 
@@ -198,4 +202,29 @@ export async function reverseGeocode(
 
   const item = (await response.json()) as NominatimItem;
   return toResult(item);
+}
+
+export async function fetchPlaceBoundary(placeId: string): Promise<Geometry | null> {
+  const params = new URLSearchParams({
+    place_id: placeId,
+    format: "json",
+    polygon_geojson: "1",
+    polygon_threshold: "0.002",
+  });
+
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/search?${params}`,
+    { headers: NOMINATIM_HEADERS }
+  );
+
+  if (!response.ok) return null;
+
+  const data = (await response.json()) as NominatimItem[];
+  const item = data[0];
+  if (!item?.geojson) return null;
+
+  const validTypes = ["Polygon", "MultiPolygon"];
+  if (!validTypes.includes(item.geojson.type)) return null;
+
+  return item.geojson;
 }

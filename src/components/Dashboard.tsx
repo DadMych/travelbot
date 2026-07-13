@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Visit } from "@/lib/db/schema";
 import type { Achievement, TravelStats } from "@/lib/achievements";
 import { AchievementPanel } from "@/components/AchievementPanel";
@@ -45,6 +45,7 @@ export function Dashboard() {
   const [selectedId, setSelectedId] = useState<string>();
   const [tab, setTab] = useState<Tab>("places");
   const [refreshing, setRefreshing] = useState(false);
+  const backfillStarted = useRef(false);
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -69,6 +70,26 @@ export function Dashboard() {
     const interval = setInterval(() => fetchData(true), 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  useEffect(() => {
+    if (!data || backfillStarted.current) return;
+
+    const missing = data.visits.filter((v) => !v.boundary).length;
+    if (missing === 0) return;
+
+    backfillStarted.current = true;
+
+    (async () => {
+      const rounds = Math.ceil(missing / 3);
+      for (let i = 0; i < rounds; i++) {
+        const res = await fetch("/api/visits/backfill-boundaries", { method: "POST" });
+        if (!res.ok) break;
+        const { updated } = await res.json();
+        if (!updated) break;
+        await fetchData(true);
+      }
+    })();
+  }, [data, fetchData]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Прибрати це місце з карти?")) return;

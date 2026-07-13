@@ -1,8 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import Map, { Marker, NavigationControl, Popup } from "react-map-gl/maplibre";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Map, {
+  Layer,
+  Marker,
+  NavigationControl,
+  Popup,
+  Source,
+} from "react-map-gl/maplibre";
+import type { MapRef } from "react-map-gl/maplibre";
 import type { Visit } from "@/lib/db/schema";
+import { geometryBBox, visitsToFeatureCollection } from "@/lib/geojson";
 import { formatDate } from "@/lib/utils";
 import { Calendar, MapPin, X } from "lucide-react";
 
@@ -15,6 +23,7 @@ interface TravelMapProps {
 }
 
 export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps) {
+  const mapRef = useRef<MapRef>(null);
   const [popupVisit, setPopupVisit] = useState<Visit | null>(null);
 
   const selectedVisit = useMemo(
@@ -22,12 +31,40 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
     [visits, selectedId]
   );
 
+  const visitsWithBoundary = useMemo(
+    () => visits.filter((v) => v.boundary),
+    [visits]
+  );
+
+  const visitsWithoutBoundary = useMemo(
+    () => visits.filter((v) => !v.boundary),
+    [visits]
+  );
+
+  const boundaryData = useMemo(
+    () => visitsToFeatureCollection(visits, selectedId),
+    [visits, selectedId]
+  );
+
   const viewState = useMemo(() => {
+    if (selectedVisit?.boundary) {
+      const bbox = geometryBBox(selectedVisit.boundary);
+      if (bbox) {
+        return {
+          bounds: [
+            [bbox[0], bbox[1]],
+            [bbox[2], bbox[3]],
+          ] as [[number, number], [number, number]],
+          fitBoundsOptions: { padding: 48, maxZoom: 11 },
+        };
+      }
+    }
+
     if (selectedVisit) {
       return {
         longitude: selectedVisit.longitude,
         latitude: selectedVisit.latitude,
-        zoom: 8,
+        zoom: 10,
       };
     }
 
@@ -40,11 +77,36 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
     return {
       longitude: (Math.min(...lngs) + Math.max(...lngs)) / 2,
       latitude: (Math.min(...lats) + Math.max(...lats)) / 2,
-      zoom: visits.length === 1 ? 6 : 2,
+      zoom: visits.length === 1 ? 8 : 2,
     };
   }, [visits, selectedVisit]);
 
-  const handleMarkerClick = useCallback(
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map || !selectedVisit) return;
+
+    if (selectedVisit.boundary) {
+      const bbox = geometryBBox(selectedVisit.boundary);
+      if (bbox) {
+        map.fitBounds(
+          [
+            [bbox[0], bbox[1]],
+            [bbox[2], bbox[3]],
+          ],
+          { padding: 48, duration: 800, maxZoom: 11 }
+        );
+        return;
+      }
+    }
+
+    map.flyTo({
+      center: [selectedVisit.longitude, selectedVisit.latitude],
+      zoom: 10,
+      duration: 800,
+    });
+  }, [selectedVisit]);
+
+  const handleVisitClick = useCallback(
     (visit: Visit) => {
       setPopupVisit(visit);
       onSelectVisit?.(visit);
@@ -54,25 +116,74 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
 
   const activePopup = popupVisit ?? (selectedVisit && !popupVisit ? selectedVisit : null);
 
+  const initialViewState =
+    "bounds" in viewState
+      ? { longitude: 20, latitude: 30, zoom: 2 }
+      : viewState;
+
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl border border-white/8">
       <Map
-        initialViewState={viewState}
-        {...(selectedVisit
-          ? {
-              longitude: selectedVisit.longitude,
-              latitude: selectedVisit.latitude,
-              zoom: 8,
-            }
-          : {})}
+        ref={mapRef}
+        initialViewState={initialViewState}
         style={{ width: "100%", height: "100%" }}
         mapStyle={MAP_STYLE}
         attributionControl={false}
         reuseMaps
+        interactiveLayerIds={visitsWithBoundary.length > 0 ? ["city-fill"] : undefined}
+        onClick={(e) => {
+          const feature = e.features?.[0];
+          const visitId = feature?.properties?.visitId as string | undefined;
+          if (!visitId) return;
+          const visit = visits.find((v) => v.id === visitId);
+          if (visit) handleVisitClick(visit);
+        }}
       >
         <NavigationControl position="top-right" showCompass={false} />
 
-        {visits.map((visit) => (
+        {boundaryData.features.length > 0 && (
+          <Source id="city-boundaries" type="geojson" data={boundaryData}>
+            <Layer
+              id="city-fill"
+              type="fill"
+              paint={{
+                "fill-color": [
+                  "case",
+                  ["==", ["get", "selected"], true],
+                  "#3b82f6",
+                  "#2563eb",
+                ],
+                "fill-opacity": [
+                  "case",
+                  ["==", ["get", "selected"], true],
+                  0.55,
+                  0.38,
+                ],
+              }}
+            />
+            <Layer
+              id="city-outline"
+              type="line"
+              paint={{
+                "line-color": [
+                  "case",
+                  ["==", ["get", "selected"], true],
+                  "#93c5fd",
+                  "#60a5fa",
+                ],
+                "line-width": [
+                  "case",
+                  ["==", ["get", "selected"], true],
+                  2.5,
+                  1.5,
+                ],
+                "line-opacity": 0.95,
+              }}
+            />
+          </Source>
+        )}
+
+        {visitsWithoutBoundary.map((visit) => (
           <Marker
             key={visit.id}
             longitude={visit.longitude}
@@ -80,7 +191,7 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
             anchor="center"
             onClick={(e) => {
               e.originalEvent.stopPropagation();
-              handleMarkerClick(visit);
+              handleVisitClick(visit);
             }}
           >
             <div className="map-marker relative flex items-center justify-center">
@@ -88,13 +199,13 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
                 <span className="pulse-ring absolute h-8 w-8 rounded-full bg-accent/40" />
               )}
               <div
-                className={`relative flex h-8 w-8 items-center justify-center rounded-full shadow-lg ring-2 ring-white/20 ${
+                className={`relative flex h-7 w-7 items-center justify-center rounded-full shadow-lg ring-2 ring-white/20 ${
                   visit.id === selectedId
                     ? "bg-accent scale-110"
                     : "bg-accent/80 hover:bg-accent"
                 }`}
               >
-                <MapPin className="h-4 w-4 text-white" fill="white" />
+                <MapPin className="h-3.5 w-3.5 text-white" fill="white" />
               </div>
             </div>
           </Marker>
@@ -105,7 +216,7 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
             longitude={activePopup.longitude}
             latitude={activePopup.latitude}
             anchor="bottom"
-            offset={20}
+            offset={12}
             closeButton={false}
             onClose={() => {
               setPopupVisit(null);
