@@ -143,7 +143,11 @@ export function TravelMap({
       : viewState;
 
   const interactiveLayerIds =
-    showBoundaries && visitsWithBoundary.length > 0 ? ["city-fill"] : undefined;
+    showBoundaries &&
+    layerSettings.showCityOutline &&
+    visitsWithBoundary.length > 0
+      ? ["city-outline"]
+      : undefined;
 
   const showCountries =
     layerSettings.showCountryBorders && boundaries.countries.features.length > 0;
@@ -173,20 +177,12 @@ export function TravelMap({
         {showCountries && (
           <Source id="country-boundaries" type="geojson" data={boundaries.countries}>
             <Layer
-              id="country-fill"
-              type="fill"
-              paint={{
-                "fill-color": "#fbbf24",
-                "fill-opacity": 0.04,
-              }}
-            />
-            <Layer
               id="country-outline"
               type="line"
               paint={{
-                "line-color": "#fcd34d",
-                "line-width": 2.5,
-                "line-opacity": 0.85,
+                "line-color": "#94a3b8",
+                "line-width": 1,
+                "line-opacity": 0.4,
               }}
             />
           </Source>
@@ -195,20 +191,12 @@ export function TravelMap({
         {showRegions && (
           <Source id="region-boundaries" type="geojson" data={boundaries.regions}>
             <Layer
-              id="region-fill"
-              type="fill"
-              paint={{
-                "fill-color": "#a78bfa",
-                "fill-opacity": 0.14,
-              }}
-            />
-            <Layer
               id="region-outline"
               type="line"
               paint={{
-                "line-color": "#ddd6fe",
-                "line-width": 2.5,
-                "line-opacity": 0.95,
+                "line-color": "#a78bfa",
+                "line-width": 1,
+                "line-opacity": 0.35,
               }}
             />
           </Source>
@@ -216,24 +204,6 @@ export function TravelMap({
 
         {showBoundaries && boundaryData.features.length > 0 && (
           <Source id="city-boundaries" type="geojson" data={boundaryData}>
-            <Layer
-              id="city-fill"
-              type="fill"
-              paint={{
-                "fill-color": [
-                  "case",
-                  ["==", ["get", "selected"], 1],
-                  "#60a5fa",
-                  "#3b82f6",
-                ],
-                "fill-opacity": [
-                  "case",
-                  ["==", ["get", "selected"], 1],
-                  0.65,
-                  0.5,
-                ],
-              }}
-            />
             {layerSettings.showCityOutline && (
               <Layer
                 id="city-outline"
@@ -242,16 +212,21 @@ export function TravelMap({
                   "line-color": [
                     "case",
                     ["==", ["get", "selected"], 1],
-                    "#ffffff",
-                    "#bfdbfe",
+                    "#93c5fd",
+                    "#64748b",
                   ],
                   "line-width": [
                     "case",
                     ["==", ["get", "selected"], 1],
-                    3.5,
-                    2.5,
+                    2,
+                    1.2,
                   ],
-                  "line-opacity": 1,
+                  "line-opacity": [
+                    "case",
+                    ["==", ["get", "selected"], 1],
+                    0.75,
+                    0.45,
+                  ],
                 }}
               />
             )}
