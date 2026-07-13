@@ -3,6 +3,8 @@ import type { FeatureCollection } from "geojson";
 import { getAllVisits } from "@/lib/visits";
 import { computeAchievements, computeStats } from "@/lib/achievements";
 import { getAdminBoundaries } from "@/lib/admin-boundaries";
+import { computeQuests, buildTimeline } from "@/lib/quests";
+import { getAppSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -26,7 +28,15 @@ export async function GET() {
       console.error("Failed to load admin boundaries:", boundaryError);
     }
 
-    return NextResponse.json({ visits, stats, achievements, adminBoundaries });
+    return NextResponse.json({
+      visits,
+      stats,
+      achievements,
+      adminBoundaries,
+      quests: computeQuests(visits),
+      timeline: buildTimeline(visits),
+      settings: await getAppSettings(),
+    });
   } catch (error) {
     console.error("Failed to fetch visits:", error);
     return NextResponse.json(

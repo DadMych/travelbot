@@ -1,13 +1,19 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FeatureCollection } from "geojson";
 import type { Visit } from "@/lib/db/schema";
 import type { Achievement, TravelStats } from "@/lib/achievements";
+import type { Quest, TimelineBucket } from "@/lib/quests";
+import { filterVisitsByTimeline } from "@/lib/quests";
+import type { TravelStatus } from "@/lib/settings";
 import { AchievementPanel } from "@/components/AchievementPanel";
 import { MapLayerControls } from "@/components/MapLayerControls";
+import { QuestPanel } from "@/components/QuestPanel";
 import { StatCard } from "@/components/StatCard";
+import { TimelineFilter, type TimelineSelection } from "@/components/TimelineFilter";
+import { TravelStatusBar } from "@/components/TravelStatusBar";
 import { VisitList } from "@/components/VisitList";
 import { cn } from "@/lib/utils";
 import {
@@ -17,6 +23,7 @@ import {
   type MapLayerSettings,
 } from "@/lib/map-layers";
 import {
+  Compass,
   Globe,
   LayoutGrid,
   Loader2,
@@ -38,7 +45,7 @@ const TravelMap = dynamic(
   }
 );
 
-type Tab = "places" | "achievements";
+type Tab = "places" | "quests" | "achievements";
 
 interface AdminBoundaries {
   countries: FeatureCollection;
@@ -50,6 +57,9 @@ interface DashboardData {
   stats: TravelStats;
   achievements: Achievement[];
   adminBoundaries: AdminBoundaries;
+  quests: Quest[];
+  timeline: TimelineBucket[];
+  settings: { travelStatus: TravelStatus; updatedAt: string };
 }
 
 export function Dashboard() {
@@ -59,7 +69,12 @@ export function Dashboard() {
   const [selectedId, setSelectedId] = useState<string>();
   const [tab, setTab] = useState<Tab>("places");
   const [refreshing, setRefreshing] = useState(false);
+  const [statusLoading, setStatusLoading] = useState(false);
   const [mapLayers, setMapLayers] = useState<MapLayerSettings>(DEFAULT_MAP_LAYERS);
+  const [timelineSelection, setTimelineSelection] = useState<TimelineSelection>({
+    year: "all",
+    month: null,
+  });
 
   useEffect(() => {
     setMapLayers(loadMapLayerSettings());
@@ -101,6 +116,33 @@ export function Dashboard() {
     fetchData(true);
   };
 
+  const handleToggleStatus = async () => {
+    if (!data) return;
+    setStatusLoading(true);
+    const next: TravelStatus = data.settings.travelStatus === "home" ? "away" : "home";
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ travelStatus: next }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      const settings = await res.json();
+      setData({ ...data, settings });
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  const filteredVisits = useMemo(() => {
+    if (!data) return [];
+    return filterVisitsByTimeline(
+      data.visits,
+      timelineSelection.year,
+      timelineSelection.month
+    );
+  }, [data, timelineSelection]);
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -125,12 +167,13 @@ export function Dashboard() {
     );
   }
 
-  const { visits, stats, achievements, adminBoundaries } = data;
+  const { stats, achievements, adminBoundaries, quests, timeline, settings } = data;
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
+  const questProgress = quests[0]?.progress ?? 0;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[radial-gradient(ellipse_at_top_left,_#0f172a_0%,_#070b14_50%)]">
-      <header className="flex shrink-0 items-center justify-between border-b border-white/6 px-4 py-3 md:px-6">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/6 px-4 py-3 md:px-6">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 ring-1 ring-accent/25">
             <Globe className="h-5 w-5 text-accent" />
@@ -141,15 +184,22 @@ export function Dashboard() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => fetchData(true)}
-          disabled={refreshing}
-          className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-muted transition hover:bg-white/8 hover:text-foreground disabled:opacity-50"
-        >
-          <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
-          Оновити
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <TravelStatusBar
+            status={settings.travelStatus}
+            onToggle={handleToggleStatus}
+            loading={statusLoading}
+          />
+          <button
+            type="button"
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-muted transition hover:bg-white/8 hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+            Оновити
+          </button>
+        </div>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[340px_1fr] md:p-6">
@@ -158,43 +208,40 @@ export function Dashboard() {
             <StatCard label="Місця" value={stats.totalVisits} icon={MapPin} />
             <StatCard label="Міста" value={stats.uniqueCities} icon={LayoutGrid} accent="text-emerald-400" />
             <StatCard label="Країни" value={stats.uniqueCountries} icon={Globe} accent="text-violet-400" />
-            <StatCard label="Ачивки" value={unlockedCount} icon={Trophy} accent="text-yellow-400" />
+            <StatCard label="Столиці" value={questProgress} icon={Compass} accent="text-sky-400" />
           </div>
+
+          <TimelineFilter
+            timeline={timeline}
+            selection={timelineSelection}
+            onChange={setTimelineSelection}
+          />
 
           <MapLayerControls settings={mapLayers} onChange={handleMapLayersChange} />
 
           <div className="flex rounded-xl border border-white/6 bg-white/2 p-1">
-            <TabButton
-              active={tab === "places"}
-              onClick={() => setTab("places")}
-              icon={MapPin}
-              label="Місця"
-            />
-            <TabButton
-              active={tab === "achievements"}
-              onClick={() => setTab("achievements")}
-              icon={Trophy}
-              label="Ачивки"
-            />
+            <TabButton active={tab === "places"} onClick={() => setTab("places")} icon={MapPin} label="Місця" />
+            <TabButton active={tab === "quests"} onClick={() => setTab("quests")} icon={Compass} label="Квести" />
+            <TabButton active={tab === "achievements"} onClick={() => setTab("achievements")} icon={Trophy} label="Ачивки" />
           </div>
 
           <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/6 bg-card/60 p-4 backdrop-blur-sm">
-            {tab === "places" ? (
+            {tab === "places" && (
               <VisitList
-                visits={visits}
+                visits={filteredVisits}
                 selectedId={selectedId}
                 onSelect={(v) => setSelectedId(v.id)}
                 onDelete={handleDelete}
               />
-            ) : (
-              <AchievementPanel achievements={achievements} />
             )}
+            {tab === "quests" && <QuestPanel quests={quests} />}
+            {tab === "achievements" && <AchievementPanel achievements={achievements} />}
           </div>
         </aside>
 
         <main className="min-h-[300px] md:min-h-0">
           <TravelMap
-            visits={visits}
+            visits={filteredVisits}
             selectedId={selectedId}
             onSelectVisit={(v) => setSelectedId(v?.id)}
             layerSettings={mapLayers}
@@ -222,10 +269,8 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium transition",
-        active
-          ? "bg-accent/20 text-accent"
-          : "text-muted hover:text-foreground"
+        "flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-[11px] font-medium transition",
+        active ? "bg-accent/20 text-accent" : "text-muted hover:text-foreground"
       )}
     >
       <Icon className="h-3.5 w-3.5" />

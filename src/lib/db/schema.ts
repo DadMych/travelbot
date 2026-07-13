@@ -31,5 +31,11 @@ export const boundaryCache = pgTable("boundary_cache", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const appSettings = pgTable("app_settings", {
+  id: text("id").primaryKey(),
+  travelStatus: text("travel_status").notNull().default("home"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Visit = typeof visits.$inferSelect;
 export type NewVisit = typeof visits.$inferInsert;

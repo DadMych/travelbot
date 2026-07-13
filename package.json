@@ -12,7 +12,8 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "seed": "tsx --tsconfig tsconfig.json scripts/seed.ts",
-    "backfill": "tsx --tsconfig tsconfig.json scripts/backfill-boundaries.ts"
+    "backfill": "tsx --tsconfig tsconfig.json scripts/backfill-boundaries.ts",
+    "fix-dates": "tsx --tsconfig tsconfig.json scripts/fix-visit-dates.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

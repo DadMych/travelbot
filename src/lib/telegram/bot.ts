@@ -3,6 +3,13 @@ import { searchPlacesRobust, type GeocodeResult } from "@/lib/geocoding";
 import { addCityFromGeocodeVerified, deleteVisit } from "@/lib/visits";
 import { isOwnerTelegramUser } from "@/lib/auth";
 import type { Achievement } from "@/lib/achievements";
+import {
+  getAppSettings,
+  setTravelStatus,
+  travelStatusEmoji,
+  travelStatusLabel,
+  type TravelStatus,
+} from "@/lib/settings";
 
 interface UserSession {
   places: GeocodeResult[];
@@ -68,14 +75,30 @@ async function addPlaceVerified(
 ): Promise<{ visitId: string; isNew: boolean }> {
   const { visit, isNew } = await addCityFromGeocodeVerified(place, {
     source: "telegram",
+    visitedAt: null,
   });
+
+  if (isNew) {
+    await setTravelStatus("away");
+  }
 
   await notifyAchievements(ctx, achievementsBefore, isNew);
 
   return { visitId: visit.id, isNew };
 }
 
-function buildAddedKeyboard(visitId: string | null, hasAlternatives: boolean): InlineKeyboard {
+function appendStatusRow(keyboard: InlineKeyboard, status: TravelStatus) {
+  keyboard
+    .row()
+    .text(`${travelStatusEmoji(status)} ${travelStatusLabel(status)}`, "status:info")
+    .text(status === "home" ? "✈️ В подорожі" : "🏠 Вдома", "status:toggle");
+  return keyboard;
+}
+
+async function buildAddedKeyboard(
+  visitId: string | null,
+  hasAlternatives: boolean
+): Promise<InlineKeyboard> {
   const keyboard = new InlineKeyboard();
   if (visitId) {
     keyboard.text("↩️ Скасувати", `undo:${visitId}`);
@@ -84,6 +107,8 @@ function buildAddedKeyboard(visitId: string | null, hasAlternatives: boolean): I
     keyboard.text("📋 Обрати інше", "choose");
   }
   keyboard.row().url("🗺 Відкрити карту", getSiteUrl());
+  const { travelStatus } = await getAppSettings();
+  appendStatusRow(keyboard, travelStatus);
   return keyboard;
 }
 
@@ -98,14 +123,17 @@ function buildChooseKeyboard(places: GeocodeResult[]): InlineKeyboard {
 }
 
 async function handleStart(ctx: Context) {
+  const { travelStatus } = await getAppSettings();
+  const keyboard = appendStatusRow(new InlineKeyboard(), travelStatus);
+
   await ctx.reply(
     "Привіт! Я твоя карта подорожей.\n\n" +
       "Просто напиши місто — одразу додам на карту.\n" +
-      "Не вгадав? Тисни «Скасувати» або «Обрати інше».\n\n" +
+      "Нове місто → статус «В подорожі» автоматично.\n\n" +
       "Команди:\n" +
       "/help — довідка\n" +
       "/stats — статистика",
-    { parse_mode: "HTML" }
+    { parse_mode: "HTML", reply_markup: keyboard }
   );
 }
 
@@ -192,7 +220,7 @@ async function autoAddCity(ctx: Context, query: string) {
       {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
-        reply_markup: buildAddedKeyboard(isNew ? visitId : null, places.length > 1),
+        reply_markup: await buildAddedKeyboard(isNew ? visitId : null, places.length > 1),
       }
     );
   } catch (error) {
@@ -276,7 +304,7 @@ async function handlePlacePick(ctx: Context, index: number) {
       {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
-        reply_markup: buildAddedKeyboard(isNew ? visitId : null, session.places.length > 1),
+        reply_markup: await buildAddedKeyboard(isNew ? visitId : null, session.places.length > 1),
       }
     );
     await ctx.answerCallbackQuery({ text: isNew ? "Оновлено!" : "Ок" });
@@ -303,10 +331,34 @@ async function handleBack(ctx: Context) {
     `✅ На карті:\n\n${formatPlaceLine(place)}`,
     {
       parse_mode: "HTML",
-      reply_markup: buildAddedKeyboard(visitId, session.places.length > 1),
+      reply_markup: await buildAddedKeyboard(visitId, session.places.length > 1),
     }
   );
   await ctx.answerCallbackQuery();
+}
+
+async function handleStatusInfo(ctx: Context) {
+  const { travelStatus } = await getAppSettings();
+  await ctx.answerCallbackQuery({
+    text: `${travelStatusEmoji(travelStatus)} ${travelStatusLabel(travelStatus)}`,
+  });
+}
+
+async function handleStatusToggle(ctx: Context) {
+  const current = await getAppSettings();
+  const next: TravelStatus = current.travelStatus === "home" ? "away" : "home";
+  await setTravelStatus(next);
+
+  await ctx.answerCallbackQuery({
+    text: `${travelStatusEmoji(next)} Тепер: ${travelStatusLabel(next)}`,
+  });
+
+  const keyboard = appendStatusRow(new InlineKeyboard(), next);
+  try {
+    await ctx.editMessageReplyMarkup({ reply_markup: keyboard });
+  } catch {
+    // message might not have markup
+  }
 }
 
 export function createBotHandlers(bot: Bot) {
@@ -325,6 +377,9 @@ export function createBotHandlers(bot: Bot) {
   });
 
   bot.callbackQuery("back", handleBack);
+
+  bot.callbackQuery("status:info", handleStatusInfo);
+  bot.callbackQuery("status:toggle", handleStatusToggle);
 
   bot.on("message:text", async (ctx) => {
     const userId = ctx.from?.id;

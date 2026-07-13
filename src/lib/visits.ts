@@ -147,7 +147,7 @@ export async function createVisitFromGeocode(
     notes: options?.notes,
     rating: options?.rating,
     visitedAt:
-      options?.visitedAt !== undefined ? options.visitedAt : new Date(),
+      options?.visitedAt !== undefined ? options.visitedAt : null,
     source: options?.source ?? "telegram",
   };
 
