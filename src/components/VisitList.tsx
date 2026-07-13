@@ -16,9 +16,9 @@ export function VisitList({ visits, selectedId, onSelect, onDelete }: VisitListP
     return (
       <div className="rounded-xl border border-dashed border-white/10 p-6 text-center">
         <MapPin className="mx-auto mb-2 h-8 w-8 text-muted/50" />
-        <p className="text-sm text-muted">Пока пусто</p>
+        <p className="text-sm text-muted">Поки порожньо</p>
         <p className="mt-1 text-xs text-muted/70">
-          Напиши город в Telegram-боте
+          Напиши місто в Telegram-боті
         </p>
       </div>
     );

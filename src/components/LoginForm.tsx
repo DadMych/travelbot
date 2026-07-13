@@ -24,7 +24,7 @@ export function LoginForm() {
       return;
     }
 
-    setError("Неверный пароль");
+    setError("Невірний пароль");
     setLoading(false);
   }
 
@@ -36,7 +36,7 @@ export function LoginForm() {
             <MapPin className="h-7 w-7 text-accent" />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">Travel Map</h1>
-          <p className="text-center text-sm text-muted">Личная карта путешествий</p>
+          <p className="text-center text-sm text-muted">Особиста карта подорожей</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -60,7 +60,7 @@ export function LoginForm() {
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-3 text-sm font-medium text-white transition hover:bg-accent/90 disabled:opacity-50"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Войти
+            Увійти
           </button>
         </form>
       </div>

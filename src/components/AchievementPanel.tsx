@@ -14,7 +14,7 @@ export function AchievementPanel({ achievements }: AchievementPanelProps) {
   const locked = achievements.filter((a) => !a.unlocked);
 
   return (
-    <div className="space-y-4">
+    <div className="flex h-full flex-col gap-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Trophy className="h-4 w-4 text-yellow-400" />
@@ -25,11 +25,11 @@ export function AchievementPanel({ achievements }: AchievementPanelProps) {
         </span>
       </div>
 
-      <div className="space-y-2 scrollbar-thin max-h-64 overflow-y-auto pr-1">
+      <div className="scrollbar-thin min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
         {unlocked.map((achievement) => (
           <AchievementCard key={achievement.id} achievement={achievement} />
         ))}
-        {locked.slice(0, 5).map((achievement) => (
+        {locked.map((achievement) => (
           <AchievementCard key={achievement.id} achievement={achievement} dimmed />
         ))}
       </div>
@@ -54,8 +54,8 @@ function AchievementCard({
         "flex items-start gap-3 rounded-xl border p-3 transition",
         achievement.unlocked
           ? tierClass
-          : "border-white/4 bg-white/2 opacity-60",
-        dimmed && !achievement.unlocked && "opacity-40"
+          : "border-white/4 bg-white/2",
+        dimmed && !achievement.unlocked && "opacity-55"
       )}
     >
       <div

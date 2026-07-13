@@ -57,7 +57,7 @@ export function Dashboard() {
       setData(json);
       setError(null);
     } catch {
-      setError("Не удалось загрузить данные. Проверь DATABASE_URL.");
+      setError("Не вдалося завантажити дані. Перевір DATABASE_URL.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -71,7 +71,7 @@ export function Dashboard() {
   }, [fetchData]);
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Удалить это место с карты?")) return;
+    if (!confirm("Прибрати це місце з карти?")) return;
     await fetch(`/api/visits/${id}`, { method: "DELETE" });
     if (selectedId === id) setSelectedId(undefined);
     fetchData(true);
@@ -95,7 +95,7 @@ export function Dashboard() {
           onClick={() => fetchData()}
           className="rounded-xl bg-accent px-4 py-2 text-sm text-white"
         >
-          Повторить
+          Спробувати знову
         </button>
       </div>
     );
@@ -113,7 +113,7 @@ export function Dashboard() {
           </div>
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Travel Map</h1>
-            <p className="text-xs text-muted">Карта путешествий</p>
+            <p className="text-xs text-muted">Карта подорожей</p>
           </div>
         </div>
 
@@ -124,16 +124,16 @@ export function Dashboard() {
           className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-muted transition hover:bg-white/8 hover:text-foreground disabled:opacity-50"
         >
           <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
-          Обновить
+          Оновити
         </button>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[340px_1fr] md:p-6">
         <aside className="flex min-h-0 flex-col gap-4 overflow-hidden md:max-h-full">
           <div className="grid grid-cols-2 gap-2">
-            <StatCard label="Места" value={stats.totalVisits} icon={MapPin} />
-            <StatCard label="Города" value={stats.uniqueCities} icon={LayoutGrid} accent="text-emerald-400" />
-            <StatCard label="Страны" value={stats.uniqueCountries} icon={Globe} accent="text-violet-400" />
+            <StatCard label="Місця" value={stats.totalVisits} icon={MapPin} />
+            <StatCard label="Міста" value={stats.uniqueCities} icon={LayoutGrid} accent="text-emerald-400" />
+            <StatCard label="Країни" value={stats.uniqueCountries} icon={Globe} accent="text-violet-400" />
             <StatCard label="Ачивки" value={unlockedCount} icon={Trophy} accent="text-yellow-400" />
           </div>
 
@@ -142,7 +142,7 @@ export function Dashboard() {
               active={tab === "places"}
               onClick={() => setTab("places")}
               icon={MapPin}
-              label="Места"
+              label="Місця"
             />
             <TabButton
               active={tab === "achievements"}

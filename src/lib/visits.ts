@@ -24,7 +24,7 @@ export async function getVisitById(id: string): Promise<Visit | undefined> {
 export async function createVisitFromGeocode(
   place: GeocodeResult,
   options?: { notes?: string; rating?: number; visitedAt?: Date; source?: string }
-): Promise<Visit> {
+): Promise<{ visit: Visit; isNew: boolean }> {
   const db = getDb();
 
   const [existing] = await db
@@ -39,7 +39,7 @@ export async function createVisitFromGeocode(
     .limit(1);
 
   if (existing) {
-    return existing;
+    return { visit: existing, isNew: false };
   }
 
   const data: NewVisit = {
@@ -58,7 +58,7 @@ export async function createVisitFromGeocode(
   };
 
   const [visit] = await db.insert(schema.visits).values(data).returning();
-  return visit;
+  return { visit, isNew: true };
 }
 
 export async function deleteVisit(id: string): Promise<boolean> {

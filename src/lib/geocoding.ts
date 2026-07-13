@@ -131,7 +131,7 @@ export async function searchPlaces(query: string, limit = 6): Promise<GeocodeRes
     format: "json",
     addressdetails: "1",
     limit: String(limit),
-    "accept-language": "ru,en",
+    "accept-language": "uk,en",
   });
 
   const response = await fetch(
@@ -182,7 +182,7 @@ export async function reverseGeocode(
     lon: String(lng),
     format: "json",
     addressdetails: "1",
-    "accept-language": "ru,en",
+    "accept-language": "uk,en",
   });
 
   const response = await fetch(

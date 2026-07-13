@@ -1,9 +1,15 @@
 import { Bot, Context, InlineKeyboard, webhookCallback } from "grammy";
 import { searchPlaces, type GeocodeResult } from "@/lib/geocoding";
-import { createVisitFromGeocode } from "@/lib/visits";
+import { createVisitFromGeocode, deleteVisit } from "@/lib/visits";
 import { isOwnerTelegramUser } from "@/lib/auth";
 
-const pendingSearches = new Map<number, GeocodeResult[]>();
+interface UserSession {
+  places: GeocodeResult[];
+  query: string;
+  autoAddedVisitId?: string;
+}
+
+const sessions = new Map<number, UserSession>();
 
 function getBot(): Bot {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -13,38 +19,50 @@ function getBot(): Bot {
   return new Bot(token);
 }
 
-function formatPlaceOption(place: GeocodeResult, index: number): string {
-  const typeLabel =
-    place.type === "city"
-      ? "город"
-      : place.type === "town"
-        ? "городок"
-        : place.type === "village"
-          ? "деревня"
-          : place.type;
-  const region = place.region ? ` · ${place.region}` : "";
-  return `${index + 1}. ${place.city}, ${place.country}${region} (${typeLabel})`;
+function getSiteUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    (process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : "http://localhost:3000")
+  );
 }
 
-function buildPlaceKeyboard(places: GeocodeResult[]): InlineKeyboard {
+function formatPlaceLine(place: GeocodeResult, index?: number): string {
+  const prefix = index !== undefined ? `${index + 1}. ` : "";
+  const region = place.region ? ` · ${place.region}` : "";
+  return `${prefix}<b>${place.city}</b>, ${place.country}${region}`;
+}
+
+function buildAddedKeyboard(visitId: string | null, hasAlternatives: boolean): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (visitId) {
+    keyboard.text("↩️ Скасувати", `undo:${visitId}`);
+  }
+  if (hasAlternatives) {
+    keyboard.text("📋 Обрати інше", "choose");
+  }
+  keyboard.row().url("🗺 Відкрити карту", getSiteUrl());
+  return keyboard;
+}
+
+function buildChooseKeyboard(places: GeocodeResult[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   places.forEach((place, index) => {
-    keyboard.text(
-      `${index + 1}. ${place.city}, ${place.country}`,
-      `pick:${index}`
-    );
+    keyboard.text(`${index + 1}. ${place.city}, ${place.country}`, `pick:${index}`);
     if (index < places.length - 1) keyboard.row();
   });
-  keyboard.row().text("Отмена", "cancel");
+  keyboard.row().text("← Назад", "back");
   return keyboard;
 }
 
 async function handleStart(ctx: Context) {
   await ctx.reply(
-    "Привет! Я твоя карта путешествий.\n\n" +
-      "Напиши название города — покажу варианты, ты выберешь нужный, и место появится на карте.\n\n" +
-      "Команды:\n" +
-      "/help — справка\n" +
+    "Привіт! Я твоя карта подорожей.\n\n" +
+      "Просто напиши місто — одразу додам на карту.\n" +
+      "Не вгадав? Тисни «Скасувати» або «Обрати інше».\n\n" +
+      "Команди:\n" +
+      "/help — довідка\n" +
       "/stats — статистика",
     { parse_mode: "HTML" }
   );
@@ -52,11 +70,11 @@ async function handleStart(ctx: Context) {
 
 async function handleHelp(ctx: Context) {
   await ctx.reply(
-    "Как пользоваться:\n\n" +
-      "1. Напиши город: <code>Барcelona</code> или <code>Tokyo</code>\n" +
-      "2. Выбери из списка кнопкой\n" +
-      "3. Место добавится на карту\n\n" +
-      "Можно писать на русском или английском.",
+    "Як користуватись:\n\n" +
+      "1. Напиши місто: <code>Barcelona</code> або <code>Львів</code>\n" +
+      "2. Бот одразу додає найкращий варіант\n" +
+      "3. Не те? — «Скасувати» або «Обрати інше»\n\n" +
+      "Можна українською, англійською — як завгодно.",
     { parse_mode: "HTML" }
   );
 }
@@ -74,20 +92,20 @@ async function handleStats(ctx: Context) {
 
   await ctx.reply(
     `Статистика:\n\n` +
-      `Мест: ${stats.totalVisits}\n` +
-      `Городов: ${stats.uniqueCities}\n` +
-      `Стран: ${stats.uniqueCountries}\n` +
-      `Континентов: ${stats.uniqueContinents}\n\n` +
+      `Місць: ${stats.totalVisits}\n` +
+      `Міст: ${stats.uniqueCities}\n` +
+      `Країн: ${stats.uniqueCountries}\n` +
+      `Континентів: ${stats.uniqueContinents}\n\n` +
       `Ачивки: ${unlocked}/${achievements.length}`,
     { parse_mode: "HTML" }
   );
 }
 
-async function handleCitySearch(ctx: Context, query: string) {
+async function autoAddCity(ctx: Context, query: string) {
   const userId = ctx.from?.id;
   if (!userId) return;
 
-  const loading = await ctx.reply("Ищу места...");
+  const loading = await ctx.reply("Шукаю і додаю...");
 
   try {
     const places = await searchPlaces(query.trim(), 5);
@@ -96,62 +114,143 @@ async function handleCitySearch(ctx: Context, query: string) {
       await ctx.api.editMessageText(
         loading.chat.id,
         loading.message_id,
-        `Ничего не нашёл по запросу «${query}».\nПопробуй другое написание или добавь страну: «Paris France».`
+        `Нічого не знайшов за «${query}».\nСпробуй інакше або додай країну: «Paris France».`
       );
       return;
     }
 
-    pendingSearches.set(userId, places);
+    const best = places[0];
+    const { visit, isNew } = await createVisitFromGeocode(best, { source: "telegram" });
 
-    const list = places.map((p, i) => formatPlaceOption(p, i)).join("\n");
+    sessions.set(userId, {
+      places,
+      query,
+      autoAddedVisitId: isNew ? visit.id : undefined,
+    });
+
+    const statusLine = isNew
+      ? "✅ Додано на карту!"
+      : "ℹ️ Вже було на карті — оновив відмітку.";
+
+    const alternativesHint =
+      places.length > 1 ? `\n\n<i>Є ще ${places.length - 1} варіант(и) — «Обрати інше»</i>` : "";
 
     await ctx.api.editMessageText(
       loading.chat.id,
       loading.message_id,
-      `Нашёл ${places.length} вариант(ов) для «${query}»:\n\n${list}\n\nВыбери кнопкой:`,
-      { reply_markup: buildPlaceKeyboard(places) }
+      `${statusLine}\n\n${formatPlaceLine(best)}${alternativesHint}`,
+      {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+        reply_markup: buildAddedKeyboard(isNew ? visit.id : null, places.length > 1),
+      }
     );
   } catch {
     await ctx.api.editMessageText(
       loading.chat.id,
       loading.message_id,
-      "Ошибка поиска. Попробуй ещё раз через минуту."
+      "Помилка. Спробуй ще раз через хвилину."
     );
   }
+}
+
+async function handleUndo(ctx: Context, visitId: string) {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  const deleted = await deleteVisit(visitId);
+  const session = sessions.get(userId);
+  if (session?.autoAddedVisitId === visitId) {
+    session.autoAddedVisitId = undefined;
+  }
+
+  await ctx.editMessageText(
+    deleted ? "↩️ Скасовано — місце прибрано з карти." : "Не вдалося скасувати (можливо, вже видалено).",
+    { reply_markup: undefined }
+  );
+  await ctx.answerCallbackQuery({ text: deleted ? "Скасовано" : "Помилка" });
+}
+
+async function handleChooseMenu(ctx: Context) {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  const session = sessions.get(userId);
+  if (!session || session.places.length === 0) {
+    await ctx.answerCallbackQuery({ text: "Список застарів — напиши місто заново" });
+    return;
+  }
+
+  const list = session.places.map((p, i) => formatPlaceLine(p, i)).join("\n");
+
+  await ctx.editMessageText(
+    `Обери варіант для «${session.query}»:\n\n${list}`,
+    {
+      parse_mode: "HTML",
+      reply_markup: buildChooseKeyboard(session.places),
+    }
+  );
+  await ctx.answerCallbackQuery();
 }
 
 async function handlePlacePick(ctx: Context, index: number) {
   const userId = ctx.from?.id;
   if (!userId) return;
 
-  const places = pendingSearches.get(userId);
-  if (!places || !places[index]) {
-    await ctx.answerCallbackQuery({ text: "Список устарел, напиши город заново" });
+  const session = sessions.get(userId);
+  if (!session?.places[index]) {
+    await ctx.answerCallbackQuery({ text: "Список застарів — напиши місто заново" });
     return;
   }
 
-  const place = places[index];
-  pendingSearches.delete(userId);
+  const place = session.places[index];
+
+  if (session.autoAddedVisitId) {
+    await deleteVisit(session.autoAddedVisitId);
+    session.autoAddedVisitId = undefined;
+  }
 
   try {
-    const visit = await createVisitFromGeocode(place, { source: "telegram" });
-    const siteUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ??
-      (process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000");
+    const { visit, isNew } = await createVisitFromGeocode(place, { source: "telegram" });
+    session.autoAddedVisitId = isNew ? visit.id : undefined;
+
+    const statusLine = isNew ? "✅ Замінено на:" : "ℹ️ Вже було на карті:";
 
     await ctx.editMessageText(
-      `Добавлено на карту!\n\n` +
-        `<b>${visit.city}</b>, ${visit.country}\n` +
-        (visit.region ? `${visit.region}\n` : "") +
-        `\n<a href="${siteUrl}">Открыть карту</a>`,
-      { parse_mode: "HTML", link_preview_options: { is_disabled: true } }
+      `${statusLine}\n\n${formatPlaceLine(place)}`,
+      {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+        reply_markup: buildAddedKeyboard(isNew ? visit.id : null, session.places.length > 1),
+      }
     );
-    await ctx.answerCallbackQuery({ text: "Добавлено!" });
+    await ctx.answerCallbackQuery({ text: isNew ? "Оновлено!" : "Ок" });
   } catch {
-    await ctx.answerCallbackQuery({ text: "Ошибка сохранения" });
+    await ctx.answerCallbackQuery({ text: "Помилка збереження" });
   }
+}
+
+async function handleBack(ctx: Context) {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  const session = sessions.get(userId);
+  if (!session) {
+    await ctx.answerCallbackQuery({ text: "Сесія застаріла" });
+    return;
+  }
+
+  const place = session.places[0];
+  const visitId = session.autoAddedVisitId ?? null;
+
+  await ctx.editMessageText(
+    `✅ На карті:\n\n${formatPlaceLine(place)}`,
+    {
+      parse_mode: "HTML",
+      reply_markup: buildAddedKeyboard(visitId, session.places.length > 1),
+    }
+  );
+  await ctx.answerCallbackQuery();
 }
 
 export function createBotHandlers(bot: Bot) {
@@ -159,31 +258,31 @@ export function createBotHandlers(bot: Bot) {
   bot.command("help", handleHelp);
   bot.command("stats", handleStats);
 
-  bot.callbackQuery(/^pick:(\d+)$/, async (ctx) => {
-    const index = parseInt(ctx.match[1], 10);
-    await handlePlacePick(ctx, index);
+  bot.callbackQuery(/^undo:(.+)$/, async (ctx) => {
+    await handleUndo(ctx, ctx.match[1]);
   });
 
-  bot.callbackQuery("cancel", async (ctx) => {
-    const userId = ctx.from?.id;
-    if (userId) pendingSearches.delete(userId);
-    await ctx.editMessageText("Отменено.");
-    await ctx.answerCallbackQuery();
+  bot.callbackQuery("choose", handleChooseMenu);
+
+  bot.callbackQuery(/^pick:(\d+)$/, async (ctx) => {
+    await handlePlacePick(ctx, parseInt(ctx.match[1], 10));
   });
+
+  bot.callbackQuery("back", handleBack);
 
   bot.on("message:text", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
 
     if (!isOwnerTelegramUser(userId)) {
-      await ctx.reply("Этот бот только для владельца карты.");
+      await ctx.reply("Цей бот тільки для власника карти.");
       return;
     }
 
     const text = ctx.message.text.trim();
     if (text.startsWith("/")) return;
 
-    await handleCitySearch(ctx, text);
+    await autoAddCity(ctx, text);
   });
 }
 

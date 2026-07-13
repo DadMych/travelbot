@@ -151,8 +151,8 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20">
           <div className="rounded-2xl border border-white/10 bg-card/90 px-6 py-4 text-center backdrop-blur-md">
             <MapPin className="mx-auto mb-2 h-6 w-6 text-accent" />
-            <p className="text-sm font-medium">Карта ждёт первое место</p>
-            <p className="mt-1 text-xs text-muted">Добавь через Telegram-бота</p>
+            <p className="text-sm font-medium">Карта чекає перше місце</p>
+            <p className="mt-1 text-xs text-muted">Додай через Telegram-бота</p>
           </div>
         </div>
       )}
