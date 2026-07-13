@@ -24,12 +24,14 @@ interface NominatimAddress {
   region?: string;
   country?: string;
   country_code?: string;
+  county?: string;
 }
 
 interface NominatimItem {
   place_id: number;
   lat: string;
   lon: string;
+  name?: string;
   display_name: string;
   type: string;
   class: string;
@@ -92,15 +94,20 @@ const CONTINENT_BY_COUNTRY: Record<string, string> = {
   NG: "Africa",
 };
 
-function extractCity(address?: NominatimAddress): string {
-  if (!address) return "Unknown";
-  return (
-    address.city ??
-    address.town ??
-    address.village ??
-    address.municipality ??
-    "Unknown"
-  );
+function extractCity(item: NominatimItem): string {
+  const address = item.address;
+  const fromAddress =
+    address?.city ??
+    address?.town ??
+    address?.village ??
+    address?.municipality ??
+    address?.county;
+
+  if (fromAddress) return fromAddress;
+  if (item.name) return item.name;
+
+  const firstPart = item.display_name.split(",")[0]?.trim();
+  return firstPart || "Unknown";
 }
 
 function extractRegion(address?: NominatimAddress): string | null {
@@ -109,7 +116,7 @@ function extractRegion(address?: NominatimAddress): string | null {
 }
 
 function toResult(item: NominatimItem): GeocodeResult {
-  const city = extractCity(item.address);
+  const city = extractCity(item);
   const country = item.address?.country ?? "Unknown";
   const countryCode = (item.address?.country_code ?? "xx").toUpperCase();
   const region = extractRegion(item.address);
@@ -133,14 +140,23 @@ function toResult(item: NominatimItem): GeocodeResult {
   };
 }
 
-export async function searchPlaces(query: string, limit = 6): Promise<GeocodeResult[]> {
+export async function searchPlaces(
+  query: string,
+  limit = 6,
+  options?: { featureType?: "city" | "town" | "settlement" }
+): Promise<GeocodeResult[]> {
+  const fetchLimit = Math.max(limit * 4, 10);
   const params = new URLSearchParams({
     q: query,
     format: "json",
     addressdetails: "1",
-    limit: String(limit),
+    limit: String(fetchLimit),
     "accept-language": "uk,en",
   });
+
+  if (options?.featureType) {
+    params.set("featuretype", options.featureType);
+  }
 
   const response = await fetch(
     `https://nominatim.openstreetmap.org/search?${params}`,
@@ -156,16 +172,26 @@ export async function searchPlaces(query: string, limit = 6): Promise<GeocodeRes
 
   const data = (await response.json()) as NominatimItem[];
 
+  const placeTypes = new Set(["city", "town", "village", "municipality", "hamlet", "suburb"]);
+  const placeItems = data.filter(
+    (item) =>
+      (item.class === "place" && placeTypes.has(item.type)) ||
+      (item.class === "boundary" && item.type === "administrative")
+  );
+
+  const pool = placeItems.length > 0 ? placeItems : data.filter((item) => item.class !== "waterway");
+
   const seen = new Set<string>();
   const results: GeocodeResult[] = [];
 
-  for (const item of data) {
+  for (const item of pool) {
     if (item.class !== "place" && item.class !== "boundary") continue;
     const result = toResult(item);
     const key = `${result.city}|${result.countryCode}|${Math.round(result.latitude * 100)}|${Math.round(result.longitude * 100)}`;
     if (seen.has(key)) continue;
     seen.add(key);
     results.push(result);
+    if (results.length >= limit) break;
   }
 
   return results.sort((a, b) => {

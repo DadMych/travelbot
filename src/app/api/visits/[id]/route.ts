@@ -19,7 +19,12 @@ export async function PATCH(
     const visit = await updateVisit(id, {
       notes: body.notes,
       rating: body.rating,
-      visitedAt: body.visitedAt ? new Date(body.visitedAt) : undefined,
+      visitedAt:
+        body.visitedAt === undefined
+          ? undefined
+          : body.visitedAt
+            ? new Date(body.visitedAt)
+            : null,
     });
 
     if (!visit) {
