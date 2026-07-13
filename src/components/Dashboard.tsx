@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Visit } from "@/lib/db/schema";
 import type { Achievement, TravelStats } from "@/lib/achievements";
 import { AchievementPanel } from "@/components/AchievementPanel";
@@ -45,8 +45,6 @@ export function Dashboard() {
   const [selectedId, setSelectedId] = useState<string>();
   const [tab, setTab] = useState<Tab>("places");
   const [refreshing, setRefreshing] = useState(false);
-  const [backfillingBoundaries, setBackfillingBoundaries] = useState(false);
-  const backfillStarted = useRef(false);
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -71,38 +69,6 @@ export function Dashboard() {
     const interval = setInterval(() => fetchData(true), 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
-
-  useEffect(() => {
-    if (!data || backfillStarted.current) return;
-
-    const missing = data.visits.filter((v) => !v.boundary).length;
-    if (missing === 0) return;
-
-    backfillStarted.current = true;
-
-    (async () => {
-      setBackfillingBoundaries(true);
-      try {
-        let remaining = missing;
-        while (remaining > 0) {
-          const res = await fetch("/api/visits/backfill-boundaries", { method: "POST" });
-          if (!res.ok) break;
-          const { updated } = await res.json();
-          if (!updated) break;
-          const fresh = await fetch("/api/visits");
-          if (fresh.ok) {
-            const json = await fresh.json();
-            setData(json);
-            remaining = json.visits.filter((v: Visit) => !v.boundary).length;
-          } else {
-            break;
-          }
-        }
-      } finally {
-        setBackfillingBoundaries(false);
-      }
-    })();
-  }, [data, fetchData]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Прибрати це місце з карти?")) return;
@@ -151,23 +117,15 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {backfillingBoundaries && (
-            <span className="flex items-center gap-1.5 rounded-xl border border-accent/20 bg-accent/10 px-3 py-2 text-[10px] text-accent">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Межі міст…
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => fetchData(true)}
-            disabled={refreshing}
-            className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-muted transition hover:bg-white/8 hover:text-foreground disabled:opacity-50"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
-            Оновити
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => fetchData(true)}
+          disabled={refreshing}
+          className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-muted transition hover:bg-white/8 hover:text-foreground disabled:opacity-50"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+          Оновити
+        </button>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[340px_1fr] md:p-6">

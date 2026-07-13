@@ -11,8 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "seed": "tsx scripts/seed.ts",
-    "backfill": "tsx scripts/backfill-boundaries.ts"
+    "seed": "tsx --tsconfig tsconfig.json scripts/seed.ts",
+    "backfill": "tsx --tsconfig tsconfig.json scripts/backfill-boundaries.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

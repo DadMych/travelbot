@@ -12,6 +12,8 @@ export interface GeocodeResult {
   longitude: number;
   displayName: string;
   type: string;
+  osmType?: string;
+  osmId?: number;
   boundary?: Geometry | null;
 }
 
@@ -36,13 +38,31 @@ interface NominatimItem {
   type: string;
   class: string;
   importance: number;
+  osm_type?: string;
+  osm_id?: number;
   address?: NominatimAddress;
   geojson?: Geometry;
+}
+
+interface NominatimDetails {
+  osm_type?: string;
+  osm_id?: number;
 }
 
 const NOMINATIM_HEADERS = {
   "User-Agent": "TravelMapBot/1.0 (personal travel tracker)",
 };
+
+const NOMINATIM_DELAY_MS = 1100;
+let lastNominatimCall = 0;
+
+async function nominatimFetch(url: string, init?: RequestInit): Promise<Response> {
+  const now = Date.now();
+  const wait = NOMINATIM_DELAY_MS - (now - lastNominatimCall);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastNominatimCall = Date.now();
+  return fetch(url, init);
+}
 
 const CONTINENT_BY_COUNTRY: Record<string, string> = {
   RU: "Europe",
@@ -137,13 +157,15 @@ function toResult(item: NominatimItem): GeocodeResult {
     longitude: parseFloat(item.lon),
     displayName,
     type: item.type,
+    osmType: item.osm_type,
+    osmId: item.osm_id,
   };
 }
 
 export async function searchPlaces(
   query: string,
   limit = 6,
-  options?: { featureType?: "city" | "town" | "settlement" }
+  options?: { featureType?: "city" | "town" | "settlement"; _retry?: number }
 ): Promise<GeocodeResult[]> {
   const fetchLimit = Math.max(limit * 4, 10);
   const params = new URLSearchParams({
@@ -158,7 +180,7 @@ export async function searchPlaces(
     params.set("featuretype", options.featureType);
   }
 
-  const response = await fetch(
+  const response = await nominatimFetch(
     `https://nominatim.openstreetmap.org/search?${params}`,
     {
       headers: NOMINATIM_HEADERS,
@@ -167,6 +189,11 @@ export async function searchPlaces(
   );
 
   if (!response.ok) {
+    const retry = options?._retry ?? 0;
+    if (response.status === 429 && retry < 2) {
+      await new Promise((r) => setTimeout(r, 3000 * (retry + 1)));
+      return searchPlaces(query, limit, { ...options, _retry: retry + 1 });
+    }
     throw new Error("Geocoding failed");
   }
 
@@ -217,7 +244,7 @@ export async function reverseGeocode(
     "accept-language": "uk,en",
   });
 
-  const response = await fetch(
+  const response = await nominatimFetch(
     `https://nominatim.openstreetmap.org/reverse?${params}`,
     {
       headers: NOMINATIM_HEADERS,
@@ -230,16 +257,45 @@ export async function reverseGeocode(
   return toResult(item);
 }
 
-export async function fetchPlaceBoundary(placeId: string): Promise<Geometry | null> {
+async function resolveOsmIds(
+  placeId: string,
+  osmType?: string,
+  osmId?: number
+): Promise<string | null> {
+  if (osmType && osmId) {
+    return `${osmType}${osmId}`;
+  }
+
+  const response = await nominatimFetch(
+    `https://nominatim.openstreetmap.org/details?place_id=${placeId}&format=json`,
+    { headers: NOMINATIM_HEADERS }
+  );
+
+  if (!response.ok) return null;
+
+  const details = (await response.json()) as NominatimDetails;
+  if (!details.osm_type || !details.osm_id) return null;
+
+  return `${details.osm_type}${details.osm_id}`;
+}
+
+export async function fetchPlaceBoundary(
+  placeId: string,
+  osmType?: string,
+  osmId?: number
+): Promise<Geometry | null> {
+  const osmIds = await resolveOsmIds(placeId, osmType, osmId);
+  if (!osmIds) return null;
+
   const params = new URLSearchParams({
-    place_id: placeId,
+    osm_ids: osmIds,
     format: "json",
     polygon_geojson: "1",
     polygon_threshold: "0.002",
   });
 
-  const response = await fetch(
-    `https://nominatim.openstreetmap.org/search?${params}`,
+  const response = await nominatimFetch(
+    `https://nominatim.openstreetmap.org/lookup?${params}`,
     { headers: NOMINATIM_HEADERS }
   );
 
@@ -253,4 +309,26 @@ export async function fetchPlaceBoundary(placeId: string): Promise<Geometry | nu
   if (!validTypes.includes(item.geojson.type)) return null;
 
   return item.geojson;
+}
+
+export async function fetchBoundaryForPlace(
+  place: Pick<GeocodeResult, "id" | "osmType" | "osmId">
+): Promise<Geometry | null> {
+  return fetchPlaceBoundary(place.id, place.osmType, place.osmId);
+}
+
+export async function findPlaceBoundary(
+  city: string,
+  country: string
+): Promise<{ boundary: Geometry; osmPlaceId: string } | null> {
+  const places = await searchPlaces(`${city}, ${country}`, 3);
+
+  for (const place of places) {
+    const boundary = await fetchBoundaryForPlace(place);
+    if (boundary) {
+      return { boundary, osmPlaceId: place.id };
+    }
+  }
+
+  return null;
 }

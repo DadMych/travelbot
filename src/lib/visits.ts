@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
-import { fetchPlaceBoundary, searchPlaces, type GeocodeResult } from "@/lib/geocoding";
+import { fetchPlaceBoundary, findPlaceBoundary, searchPlaces, type GeocodeResult } from "@/lib/geocoding";
 import { sleep } from "@/lib/geojson";
 import type { NewVisit, Visit } from "@/lib/db/schema";
 import type { Geometry } from "geojson";
@@ -28,7 +28,7 @@ export async function getVisitById(id: string): Promise<Visit | undefined> {
 
 async function resolveBoundary(place: GeocodeResult): Promise<Geometry | null> {
   if (place.boundary) return place.boundary;
-  return fetchPlaceBoundary(place.id);
+  return fetchPlaceBoundary(place.id, place.osmType, place.osmId);
 }
 
 async function saveVisitBoundary(
@@ -47,23 +47,14 @@ async function saveVisitBoundary(
 
 export async function enrichVisitBoundary(
   visit: Visit,
-  placeId?: string
+  _placeId?: string
 ): Promise<Visit | null> {
   if (visit.boundary) return visit;
 
-  let osmPlaceId = placeId ?? visit.osmPlaceId ?? undefined;
+  const found = await findPlaceBoundary(visit.city, visit.country);
+  if (!found) return null;
 
-  if (!osmPlaceId) {
-    const results = await searchPlaces(`${visit.city}, ${visit.country}`, 1);
-    osmPlaceId = results[0]?.id;
-  }
-
-  if (!osmPlaceId) return null;
-
-  const boundary = await fetchPlaceBoundary(osmPlaceId);
-  if (!boundary) return null;
-
-  const updated = await saveVisitBoundary(visit.id, boundary, osmPlaceId);
+  const updated = await saveVisitBoundary(visit.id, found.boundary, found.osmPlaceId);
   return updated ?? null;
 }
 
