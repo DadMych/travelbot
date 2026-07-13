@@ -2,6 +2,7 @@
 
 import type { Achievement } from "@/lib/achievements";
 import { TIER_COLORS } from "@/lib/achievements";
+import { getAchievementIcon } from "@/lib/achievement-icons";
 import { cn } from "@/lib/utils";
 import { Lock, Trophy } from "lucide-react";
 
@@ -44,7 +45,7 @@ function AchievementCard({
   achievement: Achievement;
   dimmed?: boolean;
 }) {
-  const Icon = achievement.icon;
+  const Icon = getAchievementIcon(achievement.icon);
   const tierClass = TIER_COLORS[achievement.tier];
   const progressPct = Math.round((achievement.progress / achievement.target) * 100);
 

@@ -18,7 +18,7 @@ export function visitsToFeatureCollection(
         properties: {
           visitId: v.id,
           city: v.city,
-          selected: v.id === selectedId,
+          selected: v.id === selectedId ? 1 : 0,
         },
         geometry: v.boundary!,
       })),

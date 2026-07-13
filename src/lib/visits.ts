@@ -67,7 +67,7 @@ export async function enrichVisitBoundary(
   return updated ?? null;
 }
 
-export async function backfillVisitBoundaries(limit = 3): Promise<number> {
+export async function backfillVisitBoundaries(limit = 10): Promise<number> {
   const db = getDb();
   const pending = await db
     .select()

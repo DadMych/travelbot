@@ -45,6 +45,7 @@ export function Dashboard() {
   const [selectedId, setSelectedId] = useState<string>();
   const [tab, setTab] = useState<Tab>("places");
   const [refreshing, setRefreshing] = useState(false);
+  const [backfillingBoundaries, setBackfillingBoundaries] = useState(false);
   const backfillStarted = useRef(false);
 
   const fetchData = useCallback(async (silent = false) => {
@@ -80,13 +81,25 @@ export function Dashboard() {
     backfillStarted.current = true;
 
     (async () => {
-      const rounds = Math.ceil(missing / 3);
-      for (let i = 0; i < rounds; i++) {
-        const res = await fetch("/api/visits/backfill-boundaries", { method: "POST" });
-        if (!res.ok) break;
-        const { updated } = await res.json();
-        if (!updated) break;
-        await fetchData(true);
+      setBackfillingBoundaries(true);
+      try {
+        let remaining = missing;
+        while (remaining > 0) {
+          const res = await fetch("/api/visits/backfill-boundaries", { method: "POST" });
+          if (!res.ok) break;
+          const { updated } = await res.json();
+          if (!updated) break;
+          const fresh = await fetch("/api/visits");
+          if (fresh.ok) {
+            const json = await fresh.json();
+            setData(json);
+            remaining = json.visits.filter((v: Visit) => !v.boundary).length;
+          } else {
+            break;
+          }
+        }
+      } finally {
+        setBackfillingBoundaries(false);
       }
     })();
   }, [data, fetchData]);
@@ -138,15 +151,23 @@ export function Dashboard() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => fetchData(true)}
-          disabled={refreshing}
-          className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-muted transition hover:bg-white/8 hover:text-foreground disabled:opacity-50"
-        >
-          <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
-          Оновити
-        </button>
+        <div className="flex items-center gap-2">
+          {backfillingBoundaries && (
+            <span className="flex items-center gap-1.5 rounded-xl border border-accent/20 bg-accent/10 px-3 py-2 text-[10px] text-accent">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Межі міст…
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-muted transition hover:bg-white/8 hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+            Оновити
+          </button>
+        </div>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[340px_1fr] md:p-6">

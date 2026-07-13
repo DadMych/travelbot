@@ -144,20 +144,35 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
         {boundaryData.features.length > 0 && (
           <Source id="city-boundaries" type="geojson" data={boundaryData}>
             <Layer
+              id="city-fill-glow"
+              type="line"
+              paint={{
+                "line-color": "#3b82f6",
+                "line-width": [
+                  "case",
+                  ["==", ["get", "selected"], 1],
+                  8,
+                  0,
+                ],
+                "line-opacity": 0.35,
+                "line-blur": 4,
+              }}
+            />
+            <Layer
               id="city-fill"
               type="fill"
               paint={{
                 "fill-color": [
                   "case",
-                  ["==", ["get", "selected"], true],
+                  ["==", ["get", "selected"], 1],
+                  "#60a5fa",
                   "#3b82f6",
-                  "#2563eb",
                 ],
                 "fill-opacity": [
                   "case",
-                  ["==", ["get", "selected"], true],
-                  0.55,
-                  0.38,
+                  ["==", ["get", "selected"], 1],
+                  0.62,
+                  0.48,
                 ],
               }}
             />
@@ -167,17 +182,33 @@ export function TravelMap({ visits, selectedId, onSelectVisit }: TravelMapProps)
               paint={{
                 "line-color": [
                   "case",
-                  ["==", ["get", "selected"], true],
+                  ["==", ["get", "selected"], 1],
+                  "#ffffff",
                   "#93c5fd",
-                  "#60a5fa",
                 ],
                 "line-width": [
                   "case",
-                  ["==", ["get", "selected"], true],
-                  2.5,
-                  1.5,
+                  ["==", ["get", "selected"], 1],
+                  3,
+                  2,
                 ],
-                "line-opacity": 0.95,
+                "line-opacity": 1,
+              }}
+            />
+            <Layer
+              id="city-labels"
+              type="symbol"
+              layout={{
+                "text-field": ["get", "city"],
+                "text-size": 11,
+                "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+                "text-anchor": "center",
+                "text-allow-overlap": false,
+              }}
+              paint={{
+                "text-color": "#e2e8f0",
+                "text-halo-color": "#0f172a",
+                "text-halo-width": 1.5,
               }}
             />
           </Source>
