@@ -1,10 +1,5 @@
-import type { Feature, FeatureCollection, Geometry } from "geojson";
+import type { Feature, FeatureCollection } from "geojson";
 import type { Visit } from "@/lib/db/schema";
-import {
-  fetchPlaceBoundariesBatch,
-  reverseGeocode,
-  searchAdministrativeBoundary,
-} from "@/lib/geocoding";
 import { pointInGeometry } from "@/lib/point-in-polygon";
 
 const COUNTRIES_GEOJSON_URL =
@@ -15,7 +10,6 @@ const UA_OBLASTS_URL =
 
 let countriesGeoJson: FeatureCollection | null = null;
 let ukraineOblasts: FeatureCollection | null = null;
-const foreignRegionCache = new Map<string, Geometry | null>();
 
 async function loadCountriesGeoJson(): Promise<FeatureCollection> {
   if (countriesGeoJson) return countriesGeoJson;
@@ -116,95 +110,8 @@ async function getUkraineOblastBoundaries(visits: Visit[]): Promise<FeatureColle
   return { type: "FeatureCollection", features: [...matched.values()] };
 }
 
-async function resolveForeignRegionBoundary(
-  visit: Visit
-): Promise<{ key: string; geometry: Geometry; label: string } | null> {
-  const cacheKey = `${visit.countryCode}|${Math.round(visit.latitude * 100)}|${Math.round(visit.longitude * 100)}`;
-  if (foreignRegionCache.has(cacheKey)) {
-    const cached = foreignRegionCache.get(cacheKey);
-    return cached ? { key: cacheKey, geometry: cached, label: visit.region ?? "Регіон" } : null;
-  }
-
-  let regionName = visit.region;
-  if (!regionName) {
-    const reverse = await reverseGeocode(visit.latitude, visit.longitude);
-    regionName = reverse?.region ?? null;
-  }
-
-  if (!regionName) {
-    foreignRegionCache.set(cacheKey, null);
-    return null;
-  }
-
-  const match = await searchAdministrativeBoundary(
-    `${regionName}, ${visit.country}`,
-    visit.countryCode
-  );
-
-  if (!match) {
-    foreignRegionCache.set(cacheKey, null);
-    return null;
-  }
-
-  let geometry = match.geometry;
-  if (!geometry) {
-    const batch = await fetchPlaceBoundariesBatch([match.osmRef]);
-    geometry = batch.get(match.osmRef) ?? null;
-  }
-
-  if (!geometry) {
-    foreignRegionCache.set(cacheKey, null);
-    return null;
-  }
-
-  foreignRegionCache.set(cacheKey, geometry);
-  return { key: `${visit.countryCode}|${regionName}`, geometry, label: regionName };
-}
-
-async function getForeignRegionBoundaries(visits: Visit[]): Promise<FeatureCollection> {
-  const foreignVisits = visits.filter((v) => v.countryCode !== "UA");
-  if (foreignVisits.length === 0) return emptyCollection();
-
-  const unique = new Map<string, Visit>();
-  for (const visit of foreignVisits) {
-    const key = `${visit.countryCode}|${Math.round(visit.latitude * 100)}|${Math.round(visit.longitude * 100)}`;
-    if (!unique.has(key)) unique.set(key, visit);
-  }
-
-  const matched = new Map<string, Feature>();
-
-  for (const visit of unique.values()) {
-    const resolved = await resolveForeignRegionBoundary(visit);
-    if (!resolved) continue;
-
-    if (!matched.has(resolved.key)) {
-      matched.set(resolved.key, {
-        type: "Feature",
-        properties: {
-          label: resolved.label,
-          regionKey: resolved.key,
-          countryCode: visit.countryCode,
-        },
-        geometry: resolved.geometry,
-      });
-    }
-  }
-
-  return { type: "FeatureCollection", features: [...matched.values()] };
-}
-
 export async function getRegionBoundaries(visits: Visit[]): Promise<FeatureCollection> {
-  if (visits.length === 0) return emptyCollection();
-
-  const [ukraine, foreign] = await Promise.all([
-    getUkraineOblastBoundaries(visits),
-    getForeignRegionBoundaries(visits),
-  ]);
-
-  return {
-    type: "FeatureCollection",
-    features: [...ukraine.features, ...foreign.features],
-  };
+  return getUkraineOblastBoundaries(visits);
 }
 
 export async function getAdminBoundaries(visits: Visit[]): Promise<{

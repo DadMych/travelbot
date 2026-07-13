@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
+import type { FeatureCollection } from "geojson";
 import type { Visit } from "@/lib/db/schema";
 import type { Achievement, TravelStats } from "@/lib/achievements";
 import { AchievementPanel } from "@/components/AchievementPanel";
@@ -39,10 +40,16 @@ const TravelMap = dynamic(
 
 type Tab = "places" | "achievements";
 
+interface AdminBoundaries {
+  countries: FeatureCollection;
+  regions: FeatureCollection;
+}
+
 interface DashboardData {
   visits: Visit[];
   stats: TravelStats;
   achievements: Achievement[];
+  adminBoundaries: AdminBoundaries;
 }
 
 export function Dashboard() {
@@ -118,7 +125,7 @@ export function Dashboard() {
     );
   }
 
-  const { visits, stats, achievements } = data;
+  const { visits, stats, achievements, adminBoundaries } = data;
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
 
   return (
@@ -191,6 +198,7 @@ export function Dashboard() {
             selectedId={selectedId}
             onSelectVisit={(v) => setSelectedId(v?.id)}
             layerSettings={mapLayers}
+            adminBoundaries={adminBoundaries}
           />
         </main>
       </div>

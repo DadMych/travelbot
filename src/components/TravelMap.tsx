@@ -20,11 +20,17 @@ const MAP_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.j
 
 const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
 
+interface AdminBoundaries {
+  countries: FeatureCollection;
+  regions: FeatureCollection;
+}
+
 interface TravelMapProps {
   visits: Visit[];
   selectedId?: string;
   onSelectVisit?: (visit: Visit | null) => void;
   layerSettings: MapLayerSettings;
+  adminBoundaries?: AdminBoundaries;
 }
 
 export function TravelMap({
@@ -32,13 +38,12 @@ export function TravelMap({
   selectedId,
   onSelectVisit,
   layerSettings,
+  adminBoundaries,
 }: TravelMapProps) {
   const mapRef = useRef<MapRef>(null);
   const [popupVisit, setPopupVisit] = useState<Visit | null>(null);
-  const [adminBoundaries, setAdminBoundaries] = useState<{
-    countries: FeatureCollection;
-    regions: FeatureCollection;
-  }>({ countries: EMPTY_FC, regions: EMPTY_FC });
+
+  const boundaries = adminBoundaries ?? { countries: EMPTY_FC, regions: EMPTY_FC };
 
   const selectedVisit = useMemo(
     () => visits.find((v) => v.id === selectedId) ?? null,
@@ -61,25 +66,6 @@ export function TravelMap({
     () => visitsToFeatureCollection(visitsWithBoundary, selectedId),
     [visitsWithBoundary, selectedId]
   );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    fetch("/api/admin-boundaries")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled || !data) return;
-        setAdminBoundaries({
-          countries: data.countries ?? EMPTY_FC,
-          regions: data.regions ?? EMPTY_FC,
-        });
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-  }, [visits.length]);
 
   const viewState = useMemo(() => {
     if (selectedVisit?.boundary && showBoundaries) {
@@ -159,6 +145,11 @@ export function TravelMap({
   const interactiveLayerIds =
     showBoundaries && visitsWithBoundary.length > 0 ? ["city-fill"] : undefined;
 
+  const showCountries =
+    layerSettings.showCountryBorders && boundaries.countries.features.length > 0;
+  const showRegions =
+    layerSettings.showRegionBorders && boundaries.regions.features.length > 0;
+
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl border border-white/8">
       <Map
@@ -179,37 +170,45 @@ export function TravelMap({
       >
         <NavigationControl position="top-right" showCompass={false} />
 
-        {layerSettings.showCountryBorders && adminBoundaries.countries.features.length > 0 && (
-          <Source id="country-boundaries" type="geojson" data={adminBoundaries.countries}>
+        {showCountries && (
+          <Source id="country-boundaries" type="geojson" data={boundaries.countries}>
+            <Layer
+              id="country-fill"
+              type="fill"
+              paint={{
+                "fill-color": "#fbbf24",
+                "fill-opacity": 0.04,
+              }}
+            />
             <Layer
               id="country-outline"
               type="line"
               paint={{
-                "line-color": "#94a3b8",
-                "line-width": 1.5,
-                "line-opacity": 0.55,
+                "line-color": "#fcd34d",
+                "line-width": 2.5,
+                "line-opacity": 0.85,
               }}
             />
           </Source>
         )}
 
-        {layerSettings.showRegionBorders && adminBoundaries.regions.features.length > 0 && (
-          <Source id="region-boundaries" type="geojson" data={adminBoundaries.regions}>
+        {showRegions && (
+          <Source id="region-boundaries" type="geojson" data={boundaries.regions}>
             <Layer
               id="region-fill"
               type="fill"
               paint={{
                 "fill-color": "#a78bfa",
-                "fill-opacity": 0.08,
+                "fill-opacity": 0.14,
               }}
             />
             <Layer
               id="region-outline"
               type="line"
               paint={{
-                "line-color": "#c4b5fd",
-                "line-width": 2,
-                "line-opacity": 0.75,
+                "line-color": "#ddd6fe",
+                "line-width": 2.5,
+                "line-opacity": 0.95,
               }}
             />
           </Source>
@@ -217,22 +216,6 @@ export function TravelMap({
 
         {showBoundaries && boundaryData.features.length > 0 && (
           <Source id="city-boundaries" type="geojson" data={boundaryData}>
-            <Layer
-              id="city-fill-glow"
-              type="line"
-              layout={{ visibility: layerSettings.showCityOutline ? "visible" : "none" }}
-              paint={{
-                "line-color": "#3b82f6",
-                "line-width": [
-                  "case",
-                  ["==", ["get", "selected"], 1],
-                  8,
-                  0,
-                ],
-                "line-opacity": 0.35,
-                "line-blur": 4,
-              }}
-            />
             <Layer
               id="city-fill"
               type="fill"
@@ -246,31 +229,32 @@ export function TravelMap({
                 "fill-opacity": [
                   "case",
                   ["==", ["get", "selected"], 1],
-                  0.62,
-                  0.48,
+                  0.65,
+                  0.5,
                 ],
               }}
             />
-            <Layer
-              id="city-outline"
-              type="line"
-              layout={{ visibility: layerSettings.showCityOutline ? "visible" : "none" }}
-              paint={{
-                "line-color": [
-                  "case",
-                  ["==", ["get", "selected"], 1],
-                  "#ffffff",
-                  "#93c5fd",
-                ],
-                "line-width": [
-                  "case",
-                  ["==", ["get", "selected"], 1],
-                  3,
-                  2,
-                ],
-                "line-opacity": 1,
-              }}
-            />
+            {layerSettings.showCityOutline && (
+              <Layer
+                id="city-outline"
+                type="line"
+                paint={{
+                  "line-color": [
+                    "case",
+                    ["==", ["get", "selected"], 1],
+                    "#ffffff",
+                    "#bfdbfe",
+                  ],
+                  "line-width": [
+                    "case",
+                    ["==", ["get", "selected"], 1],
+                    3.5,
+                    2.5,
+                  ],
+                  "line-opacity": 1,
+                }}
+              />
+            )}
             <Layer
               id="city-labels"
               type="symbol"
@@ -364,6 +348,12 @@ export function TravelMap({
           </Popup>
         )}
       </Map>
+
+      <div className="pointer-events-none absolute right-3 top-3 rounded-lg border border-white/10 bg-card/90 px-2.5 py-1.5 text-[10px] text-muted backdrop-blur-md">
+        {showCountries && `${boundaries.countries.features.length} країн · `}
+        {showRegions && `${boundaries.regions.features.length} областей · `}
+        {showBoundaries && `${visitsWithBoundary.length} міст`}
+      </div>
 
       {visits.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20">
